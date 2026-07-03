@@ -52,7 +52,6 @@ class ValorantPerformanceEngine:
     def __init__(self, match_data: dict[str, Any], target_puuid: str) -> None:
         self.raw = match_data
         self.target_puuid = target_puuid
-        # Fixed: removed trailing spaces in dictionary keys
         self.all_players: list[dict[str, Any]] = match_data.get("players", {}).get("all_players", [])
         self.raw_rounds: list[dict[str, Any]] = match_data.get("rounds", [])
         self.total_rounds: int = self._resolve_total_rounds()
@@ -68,12 +67,13 @@ class ValorantPerformanceEngine:
 
     def _build_acs_lookup(self) -> dict[str, float]:
         lookup: dict[str, float] = {}
+        meta_rounds = self.raw.get("metadata", {}).get("rounds_played") or self.total_rounds or 1
         for p in self.all_players:
             puuid = p.get("puuid")
             if not puuid: continue
             stats = p.get("stats", {})
             score = stats.get("score", 0)
-            rounds = stats.get("rounds_played", 1) or 1
+            rounds = stats.get("rounds_played") or p.get("rounds_played") or meta_rounds or 1
             lookup[puuid] = score / rounds
         return lookup
 
@@ -94,22 +94,38 @@ class ValorantPerformanceEngine:
     def _parse_round(self, raw_round: dict[str, Any], index: int) -> RoundContext:
         round_num = self._normalise_round_number(raw_round, index)
         winning_team: str = raw_round.get("winning_team", "")
-        raw_kills: list[dict[str, Any]] = raw_round.get("kill_events", [])
-        raw_kills.sort(key=lambda k: k.get("time_in_round_in_millis", 0))
+        raw_stats: list[dict[str, Any]] = raw_round.get("player_stats", [])
+        
+        raw_kills: list[dict[str, Any]] = []
+        economies = []
+        
+        for ps in raw_stats:
+            puuid = ps.get("player_puuid") or ps.get("puuid")
+            if puuid:
+                economies.append(
+                    PlayerRoundEconomy(
+                        puuid=puuid, 
+                        loadout_value=ps.get("economy", {}).get("loadout_value", 0)
+                    )
+                )
+            
+            player_kills = ps.get("kill_events", [])
+            for k in player_kills:
+                raw_kills.append(k)
+                
+        raw_kills.sort(key=lambda k: k.get("kill_time_in_round", 0))
+        
         kill_events = [
             KillEvent(killer_puuid=k.get("killer_puuid"), victim_puuid=k.get("victim_puuid"),
-                      time_in_round_ms=k.get("time_in_round_in_millis", 0))
+                      time_in_round_ms=k.get("kill_time_in_round", 0))
             for k in raw_kills
         ]
-        raw_stats: list[dict[str, Any]] = raw_round.get("player_stats", [])
-        economies = [
-            PlayerRoundEconomy(puuid=ps.get("puuid", ""), loadout_value=ps.get("economy", {}).get("loadout_value", 0))
-            for ps in raw_stats if ps.get("puuid")
-        ]
+        
         fb_puuid, fd_puuid = None, None
         if kill_events:
             fb_puuid = kill_events[0].killer_puuid
             fd_puuid = kill_events[0].victim_puuid
+            
         return RoundContext(round_num=round_num, winning_team=winning_team, target_team=self.target_team,
                             kill_events=kill_events, player_economies=economies,
                             first_blood_puuid=fb_puuid, first_death_puuid=fd_puuid)
@@ -133,7 +149,7 @@ class ValorantPerformanceEngine:
         if next_index >= len(self.raw_rounds): return None
         next_round = self.raw_rounds[next_index]
         for ps in next_round.get("player_stats", []):
-            if ps.get("puuid") == victim_puuid:
+            if ps.get("player_puuid") == victim_puuid or ps.get("puuid") == victim_puuid:
                 return ps.get("economy", {}).get("loadout_value", 0)
         return None
 
