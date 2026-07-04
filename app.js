@@ -15,6 +15,16 @@ themeToggle.addEventListener('click', () => {
     localStorage.setItem('theme', next);
 });
 
+function escapeHtml(str) {
+    if (!str) return '';
+    return String(str)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+}
+
 /* ─────────────────────────────────────────────────────────────────────────────
    STATE  (unchanged)
 ───────────────────────────────────────────────────────────────────────────── */
@@ -266,7 +276,7 @@ function renderMatches(matches, targetPuuid) {
         divider.className = 'date-divider';
         divider.innerHTML = `
             <div class="date-divider-dot"></div>
-            <span class="date-divider-label">${dateStr}</span>
+            <span class="date-divider-label">${escapeHtml(dateStr)}</span>
             <div class="date-divider-line"></div>
         `;
         matchList.appendChild(divider);
@@ -352,13 +362,13 @@ function renderMatches(matches, targetPuuid) {
             header.innerHTML = `
                 <div class="match-info">
                     <span class="match-map">
-                        ${match.map || 'UNKNOWN'}
+                        ${escapeHtml(match.map || 'UNKNOWN')}
                         ${rankBadgeHtml}
                         <span class="match-map-sep">//</span>
-                        <span class="match-agent">${target.agent || 'Unknown'}</span>
+                        <span class="match-agent">${escapeHtml(target.agent || 'Unknown')}</span>
                     </span>
                     <span class="match-mode">
-                        ${match.mode || 'Unknown Mode'}
+                        ${escapeHtml(match.mode || 'Unknown Mode')}
                         <span class="match-map-sep">//</span>
                         <span class="outcome-text ${matchOutcomeClass}">${matchOutcomeText} (${scoreSummary})</span>
                     </span>
@@ -406,11 +416,11 @@ function renderMatches(matches, targetPuuid) {
 
                     rowsHtml += `
                         <tr class="${isTarget ? 'scoreboard-row-target' : ''}">
-                            <td class="agent-col">${p.agent || 'N/A'}</td>
+                            <td class="agent-col">${escapeHtml(p.agent || 'N/A')}</td>
                             <td>
-                                <span class="clickable-player" data-name="${p.name}" data-tag="${p.tag}">
-                                    <span class="player-name">${p.name}</span>
-                                    <span class="player-tag">#${p.tag}</span>
+                                <span class="clickable-player" data-name="${escapeHtml(p.name)}" data-tag="${escapeHtml(p.tag)}">
+                                    <span class="player-name">${escapeHtml(p.name)}</span>
+                                    <span class="player-tag">#${escapeHtml(p.tag)}</span>
                                 </span>
                             </td>
                             <td>${acs}</td>
@@ -424,7 +434,7 @@ function renderMatches(matches, targetPuuid) {
                     <div class="team-section ${teamClass}">
                         <div class="team-header">
                             <div class="team-header-dot"></div>
-                            Team ${teamName}
+                            Team ${escapeHtml(teamName)}
                         </div>
                         <table class="scoreboard-table">
                             <thead>
@@ -445,7 +455,7 @@ function renderMatches(matches, targetPuuid) {
             // Build name lookup for round details
             const nameLookup = {};
             match.scoreboard.forEach(p => {
-                nameLookup[p.puuid] = `${p.name}#${p.tag}`;
+                nameLookup[p.puuid] = { name: p.name, tag: p.tag };
             });
 
             // Build Rounds Breakdown HTML
@@ -479,7 +489,8 @@ function renderMatches(matches, targetPuuid) {
                     
                     if (sr.details && sr.details.length > 0) {
                         sr.details.forEach(d => {
-                            const victimName = nameLookup[d.victim_puuid] || 'Unknown Player';
+                            const victimInfo = nameLookup[d.victim_puuid];
+                            const victimName = victimInfo ? `${escapeHtml(victimInfo.name)}#${escapeHtml(victimInfo.tag)}` : 'Unknown Player';
                             let reasonStr = '';
                             if (d.reason && d.reason.includes('clutch')) {
                                 const m = d.reason.match(/1v(\d+)/);

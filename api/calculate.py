@@ -254,8 +254,12 @@ def handle_calculation():
         req_data = request.get_json() or {}
         username = req_data.get("username", "").strip()
         tag = req_data.get("tag", "").strip()
-        page = int(req_data.get("page", 1))
-        
+        try:
+            page = int(req_data.get("page", 1))
+            if page < 1:
+                page = 1
+        except (ValueError, TypeError):
+            page = 1
         if not username or not tag:
             return jsonify({"error": "Missing username or tag parameter"}), 400
             
