@@ -1,6 +1,7 @@
 document.getElementById('calcBtn').addEventListener('click', async () => {
     const matchId = document.getElementById('matchId').value.trim();
-    const puuid = document.getElementById('puuid').value.trim();
+    const username = document.getElementById('username').value.trim();
+    const tag = document.getElementById('tag').value.trim();
     
     const errorCard = document.getElementById('errorState');
     const resultCard = document.getElementById('resultState');
@@ -9,8 +10,8 @@ document.getElementById('calcBtn').addEventListener('click', async () => {
     errorCard.classList.add('hidden');
     resultCard.classList.add('hidden');
 
-    if (!matchId || !puuid) {
-        errorCard.innerText = "ERROR: Please fill out both Match ID and Player PUUID fields.";
+    if (!matchId || !username || !tag) {
+        errorCard.innerText = "ERROR: Please fill out Match ID, Username, and Tag fields.";
         errorCard.classList.remove('hidden');
         return;
     }
@@ -23,7 +24,7 @@ document.getElementById('calcBtn').addEventListener('click', async () => {
         const response = await fetch('/api/calculate', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ match_id: matchId, puuid: puuid })
+            body: JSON.stringify({ match_id: matchId, username: username, tag: tag })
         });
 
         const data = await response.json();

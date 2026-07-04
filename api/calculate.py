@@ -5,8 +5,12 @@ from typing import Any
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 
-app = Flask(__name__)
+app = Flask(__name__, static_folder='../', static_url_path='')
 CORS(app)
+
+@app.route('/')
+def index():
+    return app.send_static_file('index.html')
 
 # ─── DATA STRUCTURES & CONSTANTS ───
 @dataclass(frozen=True)
@@ -234,10 +238,11 @@ def handle_calculation():
     try:
         req_data = request.get_json() or {}
         match_id = req_data.get("match_id", "").strip()
-        puuid = req_data.get("puuid", "").strip()
+        username = req_data.get("username", "").strip()
+        tag = req_data.get("tag", "").strip()
         
-        if not match_id or not puuid:
-            return jsonify({"error": "Missing match_id or puuid parameter"}), 400
+        if not match_id or not username or not tag:
+            return jsonify({"error": "Missing match_id, username, or tag parameter"}), 400
             
         url = f"https://api.henrikdev.xyz/valorant/v2/match/{match_id}"
         headers = {"Authorization": os.environ.get("VALORANT_API_KEY", "")}
@@ -251,9 +256,25 @@ def handle_calculation():
         if not match_data:
             return jsonify({"error": "Match dataset empty or invalid ID"}), 404
             
+        # Resolve the player's PUUID from the match data
+        all_players = match_data.get("players", {}).get("all_players", [])
+        puuid = None
+        for player in all_players:
+            p_name = player.get("name", "")
+            p_tag = player.get("tag", "")
+            if p_name.lower() == username.lower() and p_tag.lower() == tag.lower():
+                puuid = player.get("puuid")
+                break
+                
+        if not puuid:
+            return jsonify({"error": f"Player '{username}#{tag}' was not found in match {match_id}"}), 404
+            
         engine = ValorantPerformanceEngine(match_data, puuid)
         result = engine.calculate()
         return jsonify(result), 200
         
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+if __name__ == '__main__':
+    app.run(debug=True, port=5000)

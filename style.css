@@ -190,3 +190,21 @@ h2 {
 .round-score-val {
     font-weight: bold;
 }
+
+.input-row {
+    display: flex;
+    gap: 15px;
+    margin-bottom: 20px;
+}
+
+.input-row .input-group {
+    margin-bottom: 0;
+}
+
+.flex-3 {
+    flex: 3;
+}
+
+.flex-1 {
+    flex: 1;
+}
