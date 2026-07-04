@@ -1177,3 +1177,140 @@ input:focus {
     background: transparent;
     border: 1px solid var(--border);
 }
+
+/* ─── MOBILE RESPONSIVENESS ─────────────────────────────────────────────────── */
+@media (max-width: 768px) {
+    /* Main Layout */
+    body {
+        padding: 16px 12px;
+    }
+    
+    header {
+        margin-bottom: 20px;
+    }
+    
+    h1 {
+        font-size: 18px;
+    }
+    
+    /* Input Card */
+    .input-card {
+        padding: 20px;
+        margin-bottom: 20px;
+    }
+    
+    .input-row {
+        flex-direction: column;
+        gap: 12px;
+    }
+    
+    /* Performance Hero Card */
+    .performance-card {
+        padding: 18px;
+        margin-bottom: 20px;
+    }
+    
+    .perf-body {
+        flex-direction: column;
+        gap: 20px;
+    }
+    
+    .perf-graphic {
+        margin: 0 auto;
+    }
+    
+    .perf-stats {
+        width: 100%;
+        gap: 12px;
+    }
+    
+    .perf-stat-box {
+        padding: 12px;
+    }
+    
+    .perf-stat-box .stat-val {
+        font-size: 16px;
+    }
+    
+    /* Match Card Header Preview */
+    .match-header {
+        padding: 14px;
+    }
+    
+    .match-map {
+        font-size: 13px;
+        flex-wrap: wrap;
+        gap: 4px 6px;
+    }
+    
+    .rank-badge {
+        margin-left: 4px;
+        padding: 1px 4px;
+        font-size: 8px;
+    }
+    
+    .match-mode {
+        font-size: 10px;
+    }
+    
+    .match-highlights {
+        gap: 4px;
+    }
+    
+    .badge {
+        padding: 1px 5px;
+        font-size: 8px;
+    }
+    
+    /* Match Details & Tabs */
+    .match-details-inner {
+        padding: 12px 10px;
+    }
+    
+    .tab-btn {
+        padding: 8px 10px;
+        font-size: 11px;
+    }
+    
+    /* Scoreboards Table on Mobile */
+    .scoreboard-table th, .scoreboard-table td {
+        padding: 8px 4px;
+        font-size: 11px;
+    }
+    
+    .player-tag {
+        display: none; /* Hide player tag #XXXX on mobile to prevent squashing name */
+    }
+    
+    .kda-cell {
+        font-size: 11px;
+        white-space: nowrap;
+    }
+    
+    .score-chip {
+        padding: 2px 6px;
+        font-size: 11px;
+    }
+    
+    /* Rounds Timeline */
+    .round-row-card {
+        padding: 10px 12px;
+    }
+    
+    .round-row-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 6px;
+    }
+    
+    .round-row-score-chip {
+        align-self: flex-end;
+        font-size: 11px;
+        padding: 2px 6px;
+    }
+    
+    .round-event-item {
+        font-size: 11px;
+        gap: 6px;
+    }
+}
