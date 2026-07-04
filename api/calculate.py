@@ -45,7 +45,7 @@ CLUTCH_MULTIPLIER: float = 1.5
 FULL_BUY_THRESHOLD: int = 3500
 
 # Tweak these two numbers to balance your final 0-1000 score!
-PERFECT_ROUND_BENCHMARK: float = 45.0  
+PERFECT_ROUND_BENCHMARK: float = 55.0  
 CURVE_FACTOR: float = 0.65  
 
 # ─── THE SCORING ENGINE ───
