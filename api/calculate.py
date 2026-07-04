@@ -234,6 +234,13 @@ class ValorantPerformanceEngine:
                 "average_round_score": round(avg_round_score, 4), "final_score": final_score}
 
 # ─── WEB API ROUTE ───
+ACCOUNT_CACHE = {
+    ("nocap on god bro", "deeep"): {
+        "region": "eu",
+        "puuid": "3f123e34-b8cf-57bf-a4d7-e9349dde21c2"
+    }
+}
+
 @app.route('/api/calculate', methods=['POST'])
 def handle_calculation():
     try:
@@ -247,32 +254,60 @@ def handle_calculation():
             
         headers = {"Authorization": os.environ.get("VALORANT_API_KEY", "")}
         
-        # 1. Fetch account to get region and puuid
+        # 1. Fetch account or read from cache
+        cache_key = (username.lower(), tag.lower())
+        if cache_key in ACCOUNT_CACHE:
+            region = ACCOUNT_CACHE[cache_key]["region"]
+            target_puuid = ACCOUNT_CACHE[cache_key]["puuid"]
+        else:
+            encoded_name = urllib.parse.quote(username)
+            encoded_tag = urllib.parse.quote(tag)
+            acc_url = f"https://api.henrikdev.xyz/valorant/v1/account/{encoded_name}/{encoded_tag}"
+            acc_res = requests.get(acc_url, headers=headers, timeout=12)
+            
+            if acc_res.status_code != 200:
+                return jsonify({"error": f"Failed to fetch account (Status {acc_res.status_code})"}), 502
+                
+            acc_data = acc_res.json().get("data", {})
+            region = acc_data.get("region")
+            target_puuid = acc_data.get("puuid")
+            
+            if not region or not target_puuid:
+                return jsonify({"error": "Invalid account data received"}), 500
+                
+            ACCOUNT_CACHE[cache_key] = {"region": region, "puuid": target_puuid}
+            
+        # 2. Fetch Lifetime matches (paginated)
         encoded_name = urllib.parse.quote(username)
         encoded_tag = urllib.parse.quote(tag)
-        acc_url = f"https://api.henrikdev.xyz/valorant/v1/account/{encoded_name}/{encoded_tag}"
-        acc_res = requests.get(acc_url, headers=headers, timeout=12)
+        lifetime_url = f"https://api.henrikdev.xyz/valorant/v1/lifetime/matches/{region}/{encoded_name}/{encoded_tag}?size=5&page={page}"
+        lifetime_res = requests.get(lifetime_url, headers=headers, timeout=15)
         
-        if acc_res.status_code != 200:
-            return jsonify({"error": f"Failed to fetch account (Status {acc_res.status_code})"}), 502
+        if lifetime_res.status_code != 200:
+            return jsonify({"error": f"Failed to fetch lifetime match history (Status {lifetime_res.status_code})"}), 502
             
-        acc_data = acc_res.json().get("data", {})
-        region = acc_data.get("region")
-        target_puuid = acc_data.get("puuid")
+        lifetime_payload = lifetime_res.json().get("data", [])
+        match_ids = [m.get("meta", {}).get("id") for m in lifetime_payload if m.get("meta", {}).get("id")]
         
-        if not region or not target_puuid:
-            return jsonify({"error": "Invalid account data received"}), 500
+        # 3. Fetch full match details in parallel
+        from concurrent.futures import ThreadPoolExecutor
+        
+        def fetch_match_details(match_id):
+            try:
+                url = f"https://api.henrikdev.xyz/valorant/v2/match/{match_id}"
+                res = requests.get(url, headers=headers, timeout=12)
+                if res.status_code == 200:
+                    return res.json().get("data", {})
+            except Exception:
+                pass
+            return None
+
+        with ThreadPoolExecutor(max_workers=5) as executor:
+            matches_payload = list(executor.map(fetch_match_details, match_ids))
             
-        # 2. Fetch Match History
-        match_url = f"https://api.henrikdev.xyz/valorant/v3/matches/{region}/{encoded_name}/{encoded_tag}?size=5&page={page}"
-        match_res = requests.get(match_url, headers=headers, timeout=15)
+        matches_payload = [m for m in matches_payload if m]
         
-        if match_res.status_code != 200:
-            return jsonify({"error": f"Failed to fetch match history (Status {match_res.status_code})"}), 502
-            
-        matches_payload = match_res.json().get("data", [])
-        
-        # 3. Process matches
+        # 4. Process matches
         results = []
         for match_data in matches_payload:
             metadata = match_data.get("metadata") or {}
@@ -306,7 +341,7 @@ def handle_calculation():
                         "average_round_score": p_result["average_round_score"]
                     })
                 except Exception:
-                    pass # Skip if player has no team or invalid data
+                    pass
                     
             scoreboard.sort(key=lambda x: x["final_score"], reverse=True)
             
