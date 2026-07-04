@@ -1,23 +1,46 @@
+/* ─────────────────────────────────────────────────────────────────────────────
+   THEME TOGGLE  (visual only — no business logic)
+───────────────────────────────────────────────────────────────────────────── */
+const themeToggle = document.getElementById('themeToggle');
+const html = document.documentElement;
+
+// Restore saved preference
+const savedTheme = localStorage.getItem('theme') || 'dark';
+html.setAttribute('data-theme', savedTheme);
+
+themeToggle.addEventListener('click', () => {
+    const current = html.getAttribute('data-theme');
+    const next = current === 'dark' ? 'light' : 'dark';
+    html.setAttribute('data-theme', next);
+    localStorage.setItem('theme', next);
+});
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   STATE  (unchanged)
+───────────────────────────────────────────────────────────────────────────── */
 let currentPage = 1;
 let currentUsername = "";
 let currentTag = "";
 let allLoadedMatches = [];
 
+/* ─────────────────────────────────────────────────────────────────────────────
+   EVENT LISTENERS  (unchanged logic)
+───────────────────────────────────────────────────────────────────────────── */
 document.getElementById('calcBtn').addEventListener('click', () => {
     currentUsername = document.getElementById('username').value.trim();
     currentTag = document.getElementById('tag').value.trim();
-    
+
     if (!currentUsername || !currentTag) {
-        showError("ERROR: Please fill out both Username and Tag fields.");
+        showError("Please fill out both Username and Tag fields.");
         return;
     }
-    
+
     currentPage = 1;
     allLoadedMatches = [];
-    document.getElementById('matchList').innerHTML = ""; // Clear existing matches
+    document.getElementById('matchList').innerHTML = "";
     document.getElementById('resultState').classList.add('hidden');
     document.getElementById('loadMoreBtn').classList.add('hidden');
-    
+
     fetchMatches();
 });
 
@@ -26,6 +49,9 @@ document.getElementById('loadMoreBtn').addEventListener('click', () => {
     fetchMatches();
 });
 
+/* ─────────────────────────────────────────────────────────────────────────────
+   HELPERS  (unchanged logic, updated text labels)
+───────────────────────────────────────────────────────────────────────────── */
 function showError(msg) {
     const errorCard = document.getElementById('errorState');
     errorCard.innerText = msg;
@@ -34,23 +60,55 @@ function showError(msg) {
 
 function getMatchDateString(gameStart) {
     if (!gameStart) return "UNKNOWN DATE";
-    // Check if seconds or milliseconds
     const date = new Date(gameStart < 99999999999 ? gameStart * 1000 : gameStart);
     const options = { month: 'long', day: 'numeric', year: 'numeric' };
     return date.toLocaleDateString('en-US', options).toUpperCase();
 }
 
+function getScoreClass(score) {
+    if (score >= 600) return 'great';
+    if (score >= 400) return 'mid';
+    return 'low';
+}
+
+function getScoreColor(score) {
+    if (score >= 600) return 'var(--score-great)';
+    if (score >= 400) return 'var(--score-mid)';
+    return 'var(--score-low)';
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   COUNT-UP ANIMATION  (visual only)
+───────────────────────────────────────────────────────────────────────────── */
+function animateCount(el, target, duration = 600) {
+    const start = performance.now();
+    const from = 0;
+    const update = (now) => {
+        const elapsed = now - start;
+        const progress = Math.min(elapsed / duration, 1);
+        // ease-out
+        const eased = 1 - Math.pow(1 - progress, 3);
+        el.textContent = Math.round(from + (target - from) * eased);
+        if (progress < 1) requestAnimationFrame(update);
+    };
+    requestAnimationFrame(update);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   FETCH  (unchanged logic — only loading text updated)
+───────────────────────────────────────────────────────────────────────────── */
 async function fetchMatches() {
-    const errorCard = document.getElementById('errorState');
-    const resultCard = document.getElementById('resultState');
-    const btn = document.getElementById('calcBtn');
+    const errorCard   = document.getElementById('errorState');
+    const resultCard  = document.getElementById('resultState');
+    const btn         = document.getElementById('calcBtn');
     const loadMoreBtn = document.getElementById('loadMoreBtn');
-    
+
     errorCard.classList.add('hidden');
-    btn.innerText = "PROCESSING RETRIEVAL...";
+    btn.querySelector('span').innerText = "Retrieving matches…";
     btn.disabled = true;
+
     if (currentPage > 1) {
-        loadMoreBtn.innerText = "LOADING...";
+        loadMoreBtn.querySelector('span').innerText = "Loading…";
         loadMoreBtn.disabled = true;
     }
 
@@ -82,20 +140,23 @@ async function fetchMatches() {
         }
 
     } catch (err) {
-        showError(`EXECUTION FAILED: ${err.message}`);
+        showError(`Error: ${err.message}`);
     } finally {
-        btn.innerText = "ANALYSE MATCH PERFORMANCE";
+        btn.querySelector('span').innerText = "Analyse Match Performance";
         btn.disabled = false;
-        loadMoreBtn.innerText = "LOAD MORE MATCHES";
+        loadMoreBtn.querySelector('span').innerText = "Load More Matches";
         loadMoreBtn.disabled = false;
     }
 }
 
+/* ─────────────────────────────────────────────────────────────────────────────
+   RENDER  (logic unchanged — classes & markup updated for new design)
+───────────────────────────────────────────────────────────────────────────── */
 function renderMatches(matches, targetPuuid) {
     const matchList = document.getElementById('matchList');
-    matchList.innerHTML = ""; // Reset HTML list
+    matchList.innerHTML = "";
 
-    // Group matches by date string
+    // ── Group by date ────────────────────────────────────────────────────────
     const dateGroups = {};
     const uniqueDates = [];
 
@@ -108,113 +169,148 @@ function renderMatches(matches, targetPuuid) {
         dateGroups[dateStr].push(match);
     });
 
-    // Render grouped layout
+    // ── Render each date group ───────────────────────────────────────────────
     uniqueDates.forEach(dateStr => {
-        // Render Date Category Header
-        const dateHeader = document.createElement('div');
-        dateHeader.className = "date-category-header";
-        dateHeader.style = "color: var(--v-red); font-size: 12px; font-weight: bold; margin: 30px 0 15px 0; border-bottom: 1px solid var(--border-grey); padding-bottom: 6px; letter-spacing: 1px;";
-        dateHeader.innerText = dateStr;
-        matchList.appendChild(dateHeader);
 
-        const groupMatches = dateGroups[dateStr];
-        groupMatches.forEach(match => {
+        // Date divider
+        const divider = document.createElement('div');
+        divider.className = 'date-divider';
+        divider.innerHTML = `
+            <div class="date-divider-dot"></div>
+            <span class="date-divider-label">${dateStr}</span>
+            <div class="date-divider-line"></div>
+        `;
+        matchList.appendChild(divider);
+
+        // Match cards in this group
+        dateGroups[dateStr].forEach(match => {
             const card = document.createElement('div');
-            card.className = "match-card";
-            
-            // Target player summary
+            card.className = 'match-card';
+
             const target = match.target_player;
-            const score = match.performance.final_score;
-            
-            // Header
+            const score  = match.performance.final_score;
+            const cls    = getScoreClass(score);
+
+            // ── Header ──────────────────────────────────────────────────────
             const header = document.createElement('div');
-            header.className = "match-header";
+            header.className = 'match-header';
             header.innerHTML = `
                 <div class="match-info">
-                    <span class="match-map">${match.map || 'UNKNOWN'} <span style="color:#767676; font-size:12px;">// ${target.agent || 'Unknown'}</span></span>
+                    <span class="match-map">
+                        ${match.map || 'UNKNOWN'}
+                        <span class="match-map-sep">//</span>
+                        <span class="match-agent">${target.agent || 'Unknown'}</span>
+                    </span>
                     <span class="match-mode">${match.mode || 'Unknown Mode'}</span>
                 </div>
-                <div class="match-score-summary">
-                    <span class="match-score-num" style="color: ${score >= 600 ? '#4caf50' : (score >= 400 ? '#ffb300' : '#ff4655')}">${score}</span>
-                    <span style="font-size: 11px; color: var(--text-muted);">/ 1000</span>
+                <div class="match-header-right">
+                    <div class="match-score-summary">
+                        <span class="score-chip ${cls}" data-target-score="${score}">0</span>
+                    </div>
+                    <span class="chevron">›</span>
                 </div>
             `;
-            
-            // Details (Hidden by default)
+
+            // ── Details ─────────────────────────────────────────────────────
             const details = document.createElement('div');
-            details.className = "match-details hidden";
-            
-            // Group Scoreboard by Team
+            details.className = 'match-details';
+
+            // Group scoreboard by team
             const teams = {};
             match.scoreboard.forEach(p => {
-                const teamName = p.team || 'UNKNOWN TEAM';
-                if (!teams[teamName]) {
-                    teams[teamName] = [];
-                }
+                const teamName = p.team || 'UNKNOWN';
+                if (!teams[teamName]) teams[teamName] = [];
                 teams[teamName].push(p);
             });
 
-            // Sort players in each team by performance score (descending)
             for (const teamName in teams) {
                 teams[teamName].sort((a, b) => b.final_score - a.final_score);
             }
 
-            let scoreboardHtml = "";
+            let scoreboardHtml = '';
             for (const [teamName, players] of Object.entries(teams)) {
-                const isRed = teamName.toLowerCase() === 'red';
-                const isBlue = teamName.toLowerCase() === 'blue';
-                const teamColor = isRed ? '#ff4655' : (isBlue ? '#1180e6' : 'var(--text-muted)');
-                
-                let rowsHtml = "";
+                const teamClass = teamName.toLowerCase() === 'red' ? 'red'
+                                : teamName.toLowerCase() === 'blue' ? 'blue'
+                                : 'other';
+
+                let rowsHtml = '';
                 players.forEach(p => {
                     const isTarget = p.puuid === targetPuuid;
-                    const stats = p.stats || {};
-                    const acs = stats.score ? Math.round(stats.score / match.performance.total_rounds) : 0;
-                    const kills = stats.kills || 0;
-                    const deaths = stats.deaths || 0;
-                    const assists = stats.assists || 0;
-                    
+                    const stats    = p.stats || {};
+                    const acs      = stats.score ? Math.round(stats.score / match.performance.total_rounds) : 0;
+                    const kills    = stats.kills   || 0;
+                    const deaths   = stats.deaths  || 0;
+                    const assists  = stats.assists || 0;
+                    const pCls     = getScoreClass(p.final_score);
+
                     rowsHtml += `
                         <tr class="${isTarget ? 'scoreboard-row-target' : ''}">
                             <td class="agent-col">${p.agent || 'N/A'}</td>
-                            <td>${p.name}#${p.tag}</td>
-                            <td>${acs} ACS</td>
-                            <td>${kills}/${deaths}/${assists}</td>
-                            <td style="font-weight: bold; color: ${p.final_score >= 600 ? '#4caf50' : (p.final_score >= 400 ? '#ffb300' : '#ff4655')}">${p.final_score}</td>
+                            <td>
+                                <span class="player-name">${p.name}</span>
+                                <span class="player-tag">#${p.tag}</span>
+                            </td>
+                            <td>${acs}</td>
+                            <td class="kda-cell">${kills}/${deaths}/${assists}</td>
+                            <td><span class="score-chip ${pCls}">${p.final_score}</span></td>
                         </tr>
                     `;
                 });
-                
+
                 scoreboardHtml += `
-                    <div class="team-section" style="margin-top: 15px;">
-                        <h4 style="font-size: 11px; color: ${teamColor}; margin-bottom: 5px; text-transform: uppercase; letter-spacing: 1px; border-bottom: 1px solid #222; padding-bottom: 3px;">TEAM ${teamName}</h4>
-                        <table class="scoreboard-table" style="margin-top: 5px; margin-bottom: 15px;">
+                    <div class="team-section ${teamClass}">
+                        <div class="team-header">
+                            <div class="team-header-dot"></div>
+                            Team ${teamName}
+                        </div>
+                        <table class="scoreboard-table">
                             <thead>
                                 <tr>
-                                    <th style="width: 15%;">AGENT</th>
-                                    <th style="width: 35%;">PLAYER</th>
-                                    <th style="width: 15%;">ACS</th>
-                                    <th style="width: 20%;">K/D/A</th>
-                                    <th style="width: 15%;">SCORE</th>
+                                    <th style="width:14%">Agent</th>
+                                    <th style="width:34%">Player</th>
+                                    <th style="width:14%">ACS</th>
+                                    <th style="width:20%">K / D / A</th>
+                                    <th style="width:18%">Score</th>
                                 </tr>
                             </thead>
-                            <tbody>
-                                ${rowsHtml}
-                            </tbody>
+                            <tbody>${rowsHtml}</tbody>
                         </table>
                     </div>
                 `;
             }
-            
+
             details.innerHTML = `
-                <h3 style="font-size: 11px; color: var(--text-muted); margin-bottom: 10px; letter-spacing: 1px; text-transform: uppercase;">MATCH SCOREBOARD</h3>
-                ${scoreboardHtml}
+                <div class="match-details-inner">
+                    <p class="scoreboard-label">Match Scoreboard</p>
+                    ${scoreboardHtml}
+                </div>
             `;
-            
+
+            // ── Toggle accordion ─────────────────────────────────────────────
             header.addEventListener('click', () => {
-                details.classList.toggle('hidden');
+                const isOpen = card.classList.contains('open');
+                card.classList.toggle('open', !isOpen);
+
+                // Run count-up on all score chips in this card on first open
+                if (!isOpen) {
+                    card.querySelectorAll('.score-chip[data-target-score]').forEach(chip => {
+                        const target = parseInt(chip.dataset.targetScore, 10);
+                        animateCount(chip, target, 500);
+                        delete chip.dataset.targetScore; // only animate once
+                    });
+                }
             });
-            
+
+            // ── Count-up on the header chip too (runs immediately on render) ─
+            const headerChip = header.querySelector('.score-chip[data-target-score]');
+            if (headerChip) {
+                setTimeout(() => {
+                    const target = parseInt(headerChip.dataset.targetScore, 10);
+                    animateCount(headerChip, target, 700);
+                    delete headerChip.dataset.targetScore;
+                }, 80);
+            }
+
             card.appendChild(header);
             card.appendChild(details);
             matchList.appendChild(card);

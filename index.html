@@ -1,41 +1,55 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Valorant Performance Engine — Custom curated match assessment scoring for competitive players.">
     <title>VALORANT // Performance Engine</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
     <div class="container">
+
         <header>
-            <div class="logo">VALORANT // PERFORMANCE</div>
-            <p class="subtitle">Custom Curated Match Assessment Engine</p>
+            <div class="header-brand">
+                <div class="logo">// PERF ENGINE</div>
+                <p class="subtitle">Custom Curated Match Assessment Engine</p>
+            </div>
+            <button class="theme-toggle" id="themeToggle" aria-label="Toggle theme">
+                <span class="toggle-icon-moon">🌙</span>
+                <div class="toggle-track">
+                    <div class="toggle-dot"></div>
+                </div>
+                <span class="toggle-icon-sun">☀️</span>
+            </button>
         </header>
 
         <main>
             <section class="input-card">
-
                 <div class="input-row">
                     <div class="input-group flex-3">
-                        <label>RIOT ID / USERNAME</label>
-                        <input type="text" id="username" placeholder="e.g., TenZ">
+                        <label for="username">Riot ID / Username</label>
+                        <input type="text" id="username" placeholder="e.g., TenZ" autocomplete="off" spellcheck="false">
                     </div>
                     <div class="input-group flex-1">
-                        <label>TAG</label>
-                        <input type="text" id="tag" placeholder="e.g., NA1">
+                        <label for="tag">Tag</label>
+                        <input type="text" id="tag" placeholder="NA1" autocomplete="off" spellcheck="false">
                     </div>
                 </div>
-                <button id="calcBtn">ANALYSE MATCH PERFORMANCE</button>
+                <button id="calcBtn"><span>Analyse Match Performance</span></button>
             </section>
 
             <section id="errorState" class="error-card hidden"></section>
 
             <section id="resultState" class="result-container hidden">
                 <div id="matchList"></div>
-                <button id="loadMoreBtn" class="hidden" style="margin-top: 20px;">LOAD MORE MATCHES</button>
+                <button id="loadMoreBtn" class="hidden"><span>Load More Matches</span></button>
             </section>
         </main>
+
     </div>
     <script src="app.js"></script>
 </body>
