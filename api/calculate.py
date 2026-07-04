@@ -43,10 +43,9 @@ FIRST_BLOOD_BONUS: int = 25
 FIRST_DEATH_PENALTY: int = 35
 CLUTCH_MULTIPLIER: float = 1.5
 FULL_BUY_THRESHOLD: int = 3500
-# FIXED: Lowered to 45.0. Averaging 45 pts/round is now a "perfect" 1000 score.
+
+# Tweak these two numbers to balance your final 0-1000 score!
 PERFECT_ROUND_BENCHMARK: float = 45.0  
-ECONOMY_RESET_ROUNDS: frozenset[int] = frozenset({1, 13})
-# FIXED: Adjusted to 0.65 to properly reward high-elo consistency.
 CURVE_FACTOR: float = 0.65  
 
 # ─── THE SCORING ENGINE ───
@@ -170,7 +169,7 @@ class ValorantPerformanceEngine:
             if not victim: continue
             
             enemy_acs: float = self.acs_lookup.get(victim, 0.0)
-            # FIXED: Added a flat +15 base value to every kill so standard kills have weight
+            # Base kill value + ACS scaling
             dkv: float = (enemy_acs / 10.0) + 15.0 
             
             multiplier: float = 1.0
@@ -179,17 +178,16 @@ class ValorantPerformanceEngine:
             if is_round_lost:
                 next_loadout = self._get_enemy_loadout_next_round(victim, raw_index)
                 if next_loadout is not None and next_loadout < FULL_BUY_THRESHOLD:
+                    # You killed them and damaged their economy for next round!
                     multiplier, reason = 1.25, f"eco damage ({next_loadout})"
-                elif ctx.round_num in ECONOMY_RESET_ROUNDS:
-                    multiplier, reason = 0.8, "pistol round (lost)"
                 else:
+                    # Standard kill, but the round was ultimately lost.
                     multiplier, reason = 1.0, "standard (lost round)"
             else:
                 if victim in clutch_victims: 
                     multiplier, reason = CLUTCH_MULTIPLIER, "clutch"
-                elif ctx.round_num in ECONOMY_RESET_ROUNDS:
-                    multiplier, reason = 1.5, "pistol round (won)"
                 else:
+                    # Standard kill in a won round (Includes Pistol rounds now!)
                     multiplier, reason = 1.0, "standard"
                     
             kill_points = dkv * multiplier
