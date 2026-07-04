@@ -43,11 +43,11 @@ FIRST_BLOOD_BONUS: int = 25
 FIRST_DEATH_PENALTY: int = 35
 CLUTCH_MULTIPLIER: float = 1.5
 FULL_BUY_THRESHOLD: int = 3500
-# FIXED: 200.0 was mathematically impossible. 75.0 allows a 2-3k round to score highly.
-PERFECT_ROUND_BENCHMARK: float = 75.0  
-# FIXED: Round 1 and 13 are pistol/economy resets. 
+# FIXED: Lowered to 45.0. Averaging 45 pts/round is now a "perfect" 1000 score.
+PERFECT_ROUND_BENCHMARK: float = 45.0  
 ECONOMY_RESET_ROUNDS: frozenset[int] = frozenset({1, 13})
-CURVE_FACTOR: float = 0.6
+# FIXED: Adjusted to 0.65 to properly reward high-elo consistency.
+CURVE_FACTOR: float = 0.65  
 
 # ─── THE SCORING ENGINE ───
 class ValorantPerformanceEngine:
@@ -170,7 +170,8 @@ class ValorantPerformanceEngine:
             if not victim: continue
             
             enemy_acs: float = self.acs_lookup.get(victim, 0.0)
-            dkv: float = enemy_acs / 10.0
+            # FIXED: Added a flat +15 base value to every kill so standard kills have weight
+            dkv: float = (enemy_acs / 10.0) + 15.0 
             
             multiplier: float = 1.0
             reason: str = "standard"
@@ -178,19 +179,15 @@ class ValorantPerformanceEngine:
             if is_round_lost:
                 next_loadout = self._get_enemy_loadout_next_round(victim, raw_index)
                 if next_loadout is not None and next_loadout < FULL_BUY_THRESHOLD:
-                    # You killed them and damaged their economy for next round! High value.
                     multiplier, reason = 1.25, f"eco damage ({next_loadout})"
                 elif ctx.round_num in ECONOMY_RESET_ROUNDS:
-                    # Lost a pistol round
                     multiplier, reason = 0.8, "pistol round (lost)"
                 else:
-                    # Standard kill, but the round was ultimately lost. Still worth base value.
                     multiplier, reason = 1.0, "standard (lost round)"
             else:
                 if victim in clutch_victims: 
                     multiplier, reason = CLUTCH_MULTIPLIER, "clutch"
                 elif ctx.round_num in ECONOMY_RESET_ROUNDS:
-                    # Won a pistol round! Huge advantage.
                     multiplier, reason = 1.5, "pistol round (won)"
                 else:
                     multiplier, reason = 1.0, "standard"
