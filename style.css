@@ -23,6 +23,16 @@
     --score-mid-bg:  rgba(251,191,36,0.12);
     --score-low:     #F87171;
     --score-low-bg:  rgba(248,113,113,0.12);
+    --tier-1:        #F87171;
+    --tier-1-bg:     rgba(248,113,113,0.12);
+    --tier-2:        #FBBF24;
+    --tier-2-bg:     rgba(251,191,36,0.12);
+    --tier-3:        #86EFAC;
+    --tier-3-bg:     rgba(134,239,172,0.08);
+    --tier-4:        #34D399;
+    --tier-4-bg:     rgba(52,211,153,0.15);
+    --tier-5:        #3B82F6;
+    --tier-5-bg:     rgba(59,130,246,0.15);
     --team-red:      #F87171;
     --team-red-bg:   rgba(248,113,113,0.07);
     --team-blue:     #60A5FA;
@@ -58,6 +68,16 @@
     --score-mid-bg:  rgba(217,119,6,0.1);
     --score-low:     #DC2626;
     --score-low-bg:  rgba(220,38,38,0.08);
+    --tier-1:        #DC2626;
+    --tier-1-bg:     rgba(220,38,38,0.08);
+    --tier-2:        #D97706;
+    --tier-2-bg:     rgba(217,119,6,0.1);
+    --tier-3:        #16A34A;
+    --tier-3-bg:     rgba(22,163,74,0.06);
+    --tier-4:        #15803D;
+    --tier-4-bg:     rgba(21,128,61,0.12);
+    --tier-5:        #2563EB;
+    --tier-5-bg:     rgba(37,99,235,0.1);
     --team-red:      #DC2626;
     --team-red-bg:   rgba(220,38,38,0.05);
     --team-blue:     #2563EB;
@@ -417,6 +437,110 @@ input:focus {
     animation: fadeInUp 0.3s ease;
 }
 
+/* ─── PERFORMANCE SECTION ───────────────────────────────────────────────────── */
+.performance-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 24px;
+    margin-bottom: 30px;
+    box-shadow: var(--shadow-card);
+    animation: fadeInUp 0.4s ease;
+}
+
+.perf-header {
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    color: var(--accent);
+    text-transform: uppercase;
+    margin-bottom: 24px;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 12px;
+}
+
+.perf-body {
+    display: flex;
+    align-items: center;
+    gap: 32px;
+}
+
+.perf-graphic {
+    width: 120px;
+    height: 120px;
+    flex-shrink: 0;
+}
+
+.circular-chart {
+    display: block;
+    margin: 0 auto;
+    max-width: 100%;
+    max-height: 250px;
+}
+
+.circle-bg {
+    fill: none;
+    stroke: var(--surface-3);
+    stroke-width: 2.5;
+}
+
+.circle {
+    fill: none;
+    stroke-width: 2.5;
+    stroke-linecap: round;
+    transition: stroke-dasharray 1s ease-out, stroke 0.5s ease;
+}
+
+.percentage {
+    fill: var(--text);
+    font-family: 'Inter', sans-serif;
+    font-size: 10px;
+    font-weight: 700;
+    text-anchor: middle;
+}
+
+.perf-label {
+    fill: var(--text-muted);
+    font-family: 'Inter', sans-serif;
+    font-size: 3px;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    text-anchor: middle;
+}
+
+.perf-stats {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 16px;
+    flex: 1;
+}
+
+.perf-stat-box {
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+}
+
+.perf-stat-box .stat-val {
+    font-size: 20px;
+    font-weight: 700;
+    color: var(--text);
+    font-variant-numeric: tabular-nums;
+}
+
+.perf-stat-box .stat-lbl {
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--text-muted);
+    letter-spacing: 0.08em;
+}
+
 /* ─── DATE DIVIDER ──────────────────────────────────────────────────────────── */
 .date-divider {
     display: flex;
@@ -573,6 +697,31 @@ input:focus {
     background: var(--score-low-bg);
 }
 
+.score-chip.tier-1 {
+    color: var(--tier-1);
+    background: var(--tier-1-bg);
+}
+
+.score-chip.tier-2 {
+    color: var(--tier-2);
+    background: var(--tier-2-bg);
+}
+
+.score-chip.tier-3 {
+    color: var(--tier-3);
+    background: var(--tier-3-bg);
+}
+
+.score-chip.tier-4 {
+    color: var(--tier-4);
+    background: var(--tier-4-bg);
+}
+
+.score-chip.tier-5 {
+    color: var(--tier-5);
+    background: var(--tier-5-bg);
+}
+
 /* Chevron */
 .chevron {
     width: 20px;
@@ -708,6 +857,17 @@ input:focus {
 .player-name {
     font-weight: 600;
     color: var(--text);
+    transition: color var(--transition);
+}
+
+.clickable-player {
+    cursor: pointer;
+    display: inline-block;
+}
+
+.clickable-player:hover .player-name {
+    color: var(--accent);
+    text-decoration: underline;
 }
 
 .player-tag {
@@ -725,4 +885,295 @@ input:focus {
 /* ─── RESULT CONTAINER ──────────────────────────────────────────────────────── */
 .result-container {
     animation: fadeInUp 0.4s ease;
+}
+
+/* ─── HIGHLIGHT BADGES ──────────────────────────────────────────────────────── */
+.match-highlights {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 4px;
+}
+
+.badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+}
+
+.badge.triple {
+    color: var(--text);
+    background: rgba(255,255,255,0.08);
+    border: 1px solid var(--border);
+}
+
+.badge.quad {
+    color: var(--score-mid);
+    background: var(--score-mid-bg);
+    border: 1px solid rgba(251,191,36,0.3);
+}
+
+.badge.ace {
+    color: var(--score-great);
+    background: var(--score-great-bg);
+    border: 1px solid rgba(52,211,153,0.3);
+}
+
+.badge.clutch {
+    color: var(--accent);
+    background: var(--accent-subtle);
+    border: 1px solid rgba(59,130,246,0.3);
+}
+
+/* ─── TABS NAVIGATION ────────────────────────────────────────────────────────── */
+.match-tabs {
+    display: flex;
+    gap: 4px;
+    background: var(--surface-3);
+    padding: 4px;
+    border-radius: var(--radius-sm);
+    margin-bottom: 20px;
+    border: 1px solid var(--border);
+}
+
+.tab-btn {
+    flex: 1;
+    background: transparent;
+    color: var(--text-muted);
+    border: none;
+    border-radius: var(--radius-xs);
+    padding: 10px 16px;
+    font-family: inherit;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: all var(--transition);
+    text-align: center;
+    box-shadow: none;
+    width: auto;
+}
+
+.tab-btn:hover {
+    color: var(--text);
+    background: rgba(255, 255, 255, 0.03);
+    box-shadow: none;
+    transform: none;
+}
+
+.tab-btn.active {
+    background: var(--surface);
+    color: var(--accent);
+    box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+}
+
+[data-theme="light"] .tab-btn.active {
+    background: var(--surface);
+    color: var(--accent);
+    box-shadow: 0 2px 6px rgba(0,0,0,0.06);
+}
+
+.tab-content.hidden {
+    display: none !important;
+}
+
+/* ─── ROUNDS TIMELINE ───────────────────────────────────────────────────────── */
+.rounds-timeline {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.round-row-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-left: 4px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 14px 18px;
+    transition: transform var(--transition), border-color var(--transition);
+}
+
+.round-row-card:hover {
+    transform: translateX(2px);
+    border-color: var(--border-bright);
+}
+
+.round-row-card.won {
+    border-left-color: var(--score-great);
+}
+
+.round-row-card.lost {
+    border-left-color: var(--score-low);
+}
+
+.round-row-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 10px;
+}
+
+.round-num-title {
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.round-outcome-lbl {
+    font-size: 10px;
+    font-weight: 700;
+    padding: 2px 6px;
+    border-radius: 4px;
+}
+
+.won .round-outcome-lbl {
+    color: var(--score-great);
+    background: var(--score-great-bg);
+}
+
+.lost .round-outcome-lbl {
+    color: var(--score-low);
+    background: var(--score-low-bg);
+}
+
+.round-row-score-chip {
+    font-size: 12px;
+    font-weight: 700;
+    padding: 3px 8px;
+    border-radius: 12px;
+    font-variant-numeric: tabular-nums;
+}
+
+.round-row-score-chip.positive {
+    color: var(--score-great);
+    background: var(--score-great-bg);
+}
+
+.round-row-score-chip.negative {
+    color: var(--score-low);
+    background: var(--score-low-bg);
+}
+
+.round-events-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    border-top: 1px dashed var(--border);
+    padding-top: 10px;
+}
+
+.round-event-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    color: var(--text);
+}
+
+.round-event-item.fb {
+    color: var(--score-mid);
+    font-weight: 600;
+}
+
+.round-event-item.fd {
+    color: var(--score-low);
+    font-weight: 600;
+}
+
+.round-event-bullet {
+    width: 4px;
+    height: 4px;
+    border-radius: 50%;
+    background: var(--text-muted);
+    flex-shrink: 0;
+}
+
+.round-event-desc {
+    flex: 1;
+}
+
+.round-event-desc span.event-highlight {
+    font-weight: 600;
+}
+
+.round-event-desc span.event-clutch {
+    color: var(--accent);
+    font-weight: 700;
+}
+
+.round-event-desc span.event-eco {
+    color: var(--score-mid);
+    font-weight: 600;
+}
+
+/* ─── DELICATE WIN/LOSS BORDERS ────────────────────────────────────────────── */
+.match-card.win {
+    border-left: 3px solid var(--score-great);
+}
+
+.match-card.lost {
+    border-left: 3px solid var(--score-low);
+}
+
+/* ─── OUTCOME LABEL ────────────────────────────────────────────────────────── */
+.outcome-text {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.outcome-text.win {
+    color: var(--score-great);
+}
+
+.outcome-text.lost {
+    color: var(--score-low);
+}
+
+/* ─── RANK BADGES ───────────────────────────────────────────────────────────── */
+.rank-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    margin-left: 8px;
+}
+
+.rank-badge.rank-1 {
+    color: #000;
+    background: #FBBF24;
+    border: 1px solid #D97706;
+}
+
+.rank-badge.rank-2 {
+    color: var(--text);
+    background: var(--surface-3);
+    border: 1px solid var(--border-bright);
+}
+
+.rank-badge.rank-3 {
+    color: #F59E0B;
+    background: rgba(180, 83, 9, 0.1);
+    border: 1px solid #B45309;
+}
+
+.rank-badge.rank-other {
+    color: var(--text-muted);
+    background: transparent;
+    border: 1px solid var(--border);
 }

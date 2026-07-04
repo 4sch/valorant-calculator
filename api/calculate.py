@@ -5,6 +5,7 @@ from typing import Any
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 import urllib.parse
+from concurrent.futures import ThreadPoolExecutor
 
 app = Flask(__name__, static_folder='../', static_url_path='')
 CORS(app)
@@ -42,6 +43,7 @@ class ScoredRound:
     first_blood_bonus: float
     first_death_penalty: float
     round_score: float
+    winning_team: str
     details: list[dict[str, Any]] = field(default_factory=list)
 
 FIRST_BLOOD_BONUS: int = 25
@@ -136,17 +138,19 @@ class ValorantPerformanceEngine:
                             kill_events=kill_events, player_economies=economies,
                             first_blood_puuid=fb_puuid, first_death_puuid=fd_puuid)
 
-    def _find_clutch_kills(self, ctx: RoundContext) -> set[str]:
+    def _find_clutch_kills(self, ctx: RoundContext) -> dict[str, int]:
         alive: set[str] = {e.puuid for e in ctx.player_economies}
         for ke in ctx.kill_events:
             if ke.killer_puuid: alive.add(ke.killer_puuid)
             if ke.victim_puuid: alive.add(ke.victim_puuid)
-        clutch_victims: set[str] = set()
+        clutch_victims: dict[str, int] = {}
         for ke in ctx.kill_events:
             killer, victim = ke.killer_puuid, ke.victim_puuid
             if killer == self.target_puuid and victim:
                 teammates_alive = {p for p in alive if p != self.target_puuid and self.team_lookup.get(p) == self.target_team}
-                if len(teammates_alive) == 0: clutch_victims.add(victim)
+                if len(teammates_alive) == 0:
+                    enemies_alive = {p for p in alive if self.team_lookup.get(p) != self.target_team}
+                    clutch_victims[victim] = len(enemies_alive)
             if victim: alive.discard(victim)
         return clutch_victims
 
@@ -163,7 +167,7 @@ class ValorantPerformanceEngine:
         is_round_lost: bool = ctx.winning_team != ctx.target_team
         is_fb: bool = ctx.first_blood_puuid == self.target_puuid
         is_fd: bool = ctx.first_death_puuid == self.target_puuid
-        clutch_victims: set[str] = self._find_clutch_kills(ctx)
+        clutch_victims: dict[str, int] = self._find_clutch_kills(ctx)
         
         kills_score: float = 0.0
         details: list[dict[str, Any]] = []
@@ -190,7 +194,8 @@ class ValorantPerformanceEngine:
                     multiplier, reason = 1.0, "standard (lost round)"
             else:
                 if victim in clutch_victims: 
-                    multiplier, reason = CLUTCH_MULTIPLIER, "clutch"
+                    clutch_size = clutch_victims[victim]
+                    multiplier, reason = CLUTCH_MULTIPLIER, f"clutch (1v{clutch_size})"
                 else:
                     # Standard kill in a won round (Includes Pistol rounds now!)
                     multiplier, reason = 1.0, "standard"
@@ -206,7 +211,7 @@ class ValorantPerformanceEngine:
         
         return ScoredRound(round_num=ctx.round_num, kills_score=round(kills_score, 2),
                            first_blood_bonus=float(fb_bonus), first_death_penalty=float(fd_penalty),
-                           round_score=round(round_score, 2), details=details)
+                           round_score=round(round_score, 2), details=details, winning_team=ctx.winning_team)
 
     def calculate(self) -> dict[str, Any]:
         scored_rounds: list[ScoredRound] = []
@@ -228,6 +233,7 @@ class ValorantPerformanceEngine:
                 "first_blood_bonus": sr.first_blood_bonus,
                 "first_death_penalty": sr.first_death_penalty,
                 "round_score": sr.round_score,
+                "winning_team": sr.winning_team,
                 "details": sr.details
             })
         return {"target_puuid": self.target_puuid, "total_rounds": r, "round_scores": serialized_rounds,
@@ -240,6 +246,7 @@ ACCOUNT_CACHE = {
         "puuid": "3f123e34-b8cf-57bf-a4d7-e9349dde21c2"
     }
 }
+MATCH_CACHE = {}
 
 @app.route('/api/calculate', methods=['POST'])
 def handle_calculation():
@@ -293,11 +300,16 @@ def handle_calculation():
         from concurrent.futures import ThreadPoolExecutor
         
         def fetch_match_details(match_id):
+            if match_id in MATCH_CACHE:
+                return MATCH_CACHE[match_id]
             try:
                 url = f"https://api.henrikdev.xyz/valorant/v2/match/{match_id}"
                 res = requests.get(url, headers=headers, timeout=12)
                 if res.status_code == 200:
-                    return res.json().get("data", {})
+                    data = res.json().get("data", {})
+                    if data:
+                        MATCH_CACHE[match_id] = data
+                    return data
             except Exception:
                 pass
             return None
@@ -367,6 +379,143 @@ def handle_calculation():
             })
             
         return jsonify({"matches": results, "page": page, "target_puuid": target_puuid}), 200
+        
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/performance', methods=['POST'])
+def handle_performance():
+    try:
+        req_data = request.get_json() or {}
+        username = req_data.get("username", "").strip()
+        tag = req_data.get("tag", "").strip()
+        
+        if not username or not tag:
+            return jsonify({"error": "Missing username or tag parameter"}), 400
+            
+        headers = {"Authorization": os.environ.get("VALORANT_API_KEY", "")}
+        
+        # 1. Fetch account or read from cache
+        cache_key = (username.lower(), tag.lower())
+        if cache_key in ACCOUNT_CACHE:
+            region = ACCOUNT_CACHE[cache_key]["region"]
+            target_puuid = ACCOUNT_CACHE[cache_key]["puuid"]
+        else:
+            encoded_name = urllib.parse.quote(username)
+            encoded_tag = urllib.parse.quote(tag)
+            acc_url = f"https://api.henrikdev.xyz/valorant/v1/account/{encoded_name}/{encoded_tag}"
+            acc_res = requests.get(acc_url, headers=headers, timeout=12)
+            
+            if acc_res.status_code != 200:
+                return jsonify({"error": f"Failed to fetch account (Status {acc_res.status_code})"}), 502
+                
+            acc_data = acc_res.json().get("data", {})
+            region = acc_data.get("region")
+            target_puuid = acc_data.get("puuid")
+            
+            if not region or not target_puuid:
+                return jsonify({"error": "Invalid account data received"}), 500
+                
+            ACCOUNT_CACHE[cache_key] = {"region": region, "puuid": target_puuid}
+            
+        # 2. Fetch Lifetime matches (last 20)
+        encoded_name = urllib.parse.quote(username)
+        encoded_tag = urllib.parse.quote(tag)
+        lifetime_url = f"https://api.henrikdev.xyz/valorant/v1/lifetime/matches/{region}/{encoded_name}/{encoded_tag}?size=20&page=1"
+        lifetime_res = requests.get(lifetime_url, headers=headers, timeout=15)
+        
+        if lifetime_res.status_code != 200:
+            return jsonify({"error": f"Failed to fetch lifetime match history (Status {lifetime_res.status_code})"}), 502
+            
+        lifetime_payload = lifetime_res.json().get("data", [])
+        match_ids = [m.get("meta", {}).get("id") for m in lifetime_payload if m.get("meta", {}).get("id")]
+        
+        # 3. Fetch full match details in parallel
+        def fetch_match_details(match_id):
+            if match_id in MATCH_CACHE:
+                return MATCH_CACHE[match_id]
+            try:
+                url = f"https://api.henrikdev.xyz/valorant/v2/match/{match_id}"
+                res = requests.get(url, headers=headers, timeout=12)
+                if res.status_code == 200:
+                    data = res.json().get("data", {})
+                    if data:
+                        MATCH_CACHE[match_id] = data
+                    return data
+            except Exception:
+                pass
+            return None
+
+        with ThreadPoolExecutor(max_workers=5) as executor:
+            matches_payload = list(executor.map(fetch_match_details, match_ids))
+            
+        valid_matches = [m for m in matches_payload if m]
+        
+        # 4. Aggregate performance
+        total_score = 0
+        total_acs = 0
+        total_kills = 0
+        total_deaths = 0
+        total_assists = 0
+        total_clutches = 0
+        total_first_bloods = 0
+        total_first_deaths = 0
+        
+        analyzed = 0
+        
+        for match_data in valid_matches:
+            try:
+                engine = ValorantPerformanceEngine(match_data, target_puuid)
+                result = engine.calculate()
+                
+                total_score += result["final_score"]
+                
+                # Extract stats for the target player
+                players_dict = match_data.get("players") or {}
+                all_players = players_dict.get("all_players") or []
+                target_player_data = next((p for p in all_players if p.get("puuid") == target_puuid), None)
+                
+                if target_player_data:
+                    stats = target_player_data.get("stats") or {}
+                    
+                    rounds_played = engine.total_rounds
+                    acs = (stats.get("score") or 0) / rounds_played if rounds_played > 0 else 0
+                    total_acs += acs
+                    
+                    total_kills += stats.get("kills") or 0
+                    total_deaths += stats.get("deaths") or 0
+                    total_assists += stats.get("assists") or 0
+                    
+                # Extract clutches, FB, FD from round_scores
+                for sr in result.get("round_scores", []):
+                    total_first_bloods += 1 if sr.get("first_blood_bonus") > 0 else 0
+                    total_first_deaths += 1 if sr.get("first_death_penalty") > 0 else 0
+                    
+                    # Count clutches by looking at details
+                    for d in sr.get("details", []):
+                        if d.get("reason", "").startswith("clutch"):
+                            total_clutches += 1
+                            break # Count clutch once per round
+                            
+                analyzed += 1
+            except Exception:
+                pass
+                
+        if analyzed == 0:
+            return jsonify({"error": "Could not analyze any matches"}), 404
+            
+        return jsonify({
+            "target_puuid": target_puuid,
+            "matches_analyzed": analyzed,
+            "average_score": round(total_score / analyzed),
+            "average_acs": round(total_acs / analyzed, 1),
+            "average_kills": round(total_kills / analyzed, 1),
+            "average_deaths": round(total_deaths / analyzed, 1),
+            "average_assists": round(total_assists / analyzed, 1),
+            "total_clutches": total_clutches,
+            "total_first_bloods": total_first_bloods,
+            "total_first_deaths": total_first_deaths
+        }), 200
         
     except Exception as e:
         return jsonify({"error": str(e)}), 500

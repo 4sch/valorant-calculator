@@ -39,6 +39,7 @@ document.getElementById('calcBtn').addEventListener('click', () => {
     allLoadedMatches = [];
     document.getElementById('matchList').innerHTML = "";
     document.getElementById('resultState').classList.add('hidden');
+    document.getElementById('performanceState').classList.add('hidden');
     document.getElementById('loadMoreBtn').classList.add('hidden');
 
     fetchMatches();
@@ -65,16 +66,56 @@ function getMatchDateString(gameStart) {
     return date.toLocaleDateString('en-US', options).toUpperCase();
 }
 
-function getScoreClass(score) {
-    if (score >= 600) return 'great';
-    if (score >= 400) return 'mid';
-    return 'low';
+function getInterpolatedColor(score) {
+    const stops = [
+        [0, 0, 85, 60],       // Red
+        [200, 20, 85, 60],    // Lighter Red / Orange
+        [300, 35, 90, 60],    // Orange
+        [400, 52, 90, 62],    // Yellow
+        [600, 100, 70, 60],   // Light Green
+        [800, 140, 75, 55],   // Vibrant Green
+        [1000, 220, 85, 60]   // Indigo Blue
+    ];
+    
+    const s = Math.max(0, Math.min(1000, score));
+    let lower = stops[0];
+    let upper = stops[stops.length - 1];
+    
+    for (let i = 0; i < stops.length - 1; i++) {
+        if (s >= stops[i][0] && s <= stops[i+1][0]) {
+            lower = stops[i];
+            upper = stops[i+1];
+            break;
+        }
+    }
+    
+    const range = upper[0] - lower[0];
+    const fraction = range === 0 ? 0 : (s - lower[0]) / range;
+    
+    let h = lower[1] + fraction * (upper[1] - lower[1]);
+    let sat = lower[2] + fraction * (upper[2] - lower[2]);
+    let l = lower[3] + fraction * (upper[3] - lower[3]);
+    
+    const theme = document.documentElement.getAttribute('data-theme') || 'dark';
+    if (theme === 'light') {
+        let textL = Math.max(25, l - 20);
+        if (h >= 35 && h <= 65) {
+            textL = 30; // Force yellow to be dark olive/gold on light theme
+        }
+        return {
+            text: `hsl(${h.toFixed(1)}, ${sat.toFixed(1)}%, ${textL}%)`,
+            bg: `hsla(${h.toFixed(1)}, ${sat.toFixed(1)}%, 90%, 0.4)`
+        };
+    } else {
+        return {
+            text: `hsl(${h.toFixed(1)}, ${sat.toFixed(1)}%, ${l.toFixed(1)}%)`,
+            bg: `hsla(${h.toFixed(1)}, ${sat.toFixed(1)}%, ${l.toFixed(1)}%, 0.12)`
+        };
+    }
 }
 
 function getScoreColor(score) {
-    if (score >= 600) return 'var(--score-great)';
-    if (score >= 400) return 'var(--score-mid)';
-    return 'var(--score-low)';
+    return getInterpolatedColor(score).text;
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────
@@ -86,9 +127,14 @@ function animateCount(el, target, duration = 600) {
     const update = (now) => {
         const elapsed = now - start;
         const progress = Math.min(elapsed / duration, 1);
-        // ease-out
         const eased = 1 - Math.pow(1 - progress, 3);
-        el.textContent = Math.round(from + (target - from) * eased);
+        const current = Math.round(from + (target - from) * eased);
+        el.textContent = current;
+        
+        const colors = getInterpolatedColor(current);
+        el.style.color = colors.text;
+        el.style.background = colors.bg;
+        
         if (progress < 1) requestAnimationFrame(update);
     };
     requestAnimationFrame(update);
@@ -112,6 +158,7 @@ async function fetchMatches() {
         loadMoreBtn.disabled = true;
     }
 
+
     try {
         const response = await fetch('/api/calculate', {
             method: 'POST',
@@ -130,6 +177,10 @@ async function fetchMatches() {
             renderMatches(allLoadedMatches, data.target_puuid);
             resultCard.classList.remove('hidden');
             loadMoreBtn.classList.remove('hidden');
+            
+            if (currentPage === 1) {
+                fetchPerformance();
+            }
         } else {
             loadMoreBtn.classList.add('hidden');
             if (currentPage > 1) {
@@ -146,6 +197,44 @@ async function fetchMatches() {
         btn.disabled = false;
         loadMoreBtn.querySelector('span').innerText = "Load More Matches";
         loadMoreBtn.disabled = false;
+    }
+}
+
+async function fetchPerformance() {
+    const perfCard = document.getElementById('performanceState');
+    
+    try {
+        const response = await fetch('/api/performance', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username: currentUsername, tag: currentTag })
+        });
+        
+        if (!response.ok) return; // Silent fail for performance stats
+        
+        const data = await response.json();
+        
+        document.getElementById('perfAcs').textContent = data.average_acs;
+        document.getElementById('perfKda').textContent = `${data.average_kills}/${data.average_deaths}/${data.average_assists}`;
+        document.getElementById('perfClutch').textContent = data.total_clutches;
+        document.getElementById('perfFbfd').textContent = `${data.total_first_bloods} / ${data.total_first_deaths}`;
+        
+        const circle = document.getElementById('perfCircle');
+        const text = document.getElementById('perfScoreText');
+        
+        // Show section
+        perfCard.classList.remove('hidden');
+        
+        // Animate score text
+        animateCount(text, data.average_score, 1000);
+        
+        // Animate circle
+        const targetPercent = Math.min(100, Math.max(0, data.average_score / 10)); // assuming 1000 is max
+        circle.style.stroke = getScoreColor(data.average_score);
+        circle.style.strokeDasharray = `${targetPercent}, 100`;
+        
+    } catch (e) {
+        console.error("Performance fetch error:", e);
     }
 }
 
@@ -184,12 +273,78 @@ function renderMatches(matches, targetPuuid) {
 
         // Match cards in this group
         dateGroups[dateStr].forEach(match => {
-            const card = document.createElement('div');
-            card.className = 'match-card';
-
             const target = match.target_player;
             const score  = match.performance.final_score;
-            const cls    = getScoreClass(score);
+
+
+            // ── Calculate Match Win/Loss Outcome ─────────────────────────────
+            let targetTeam = target.team;
+            let roundsWon = 0;
+            let roundsLost = 0;
+            if (match.performance && match.performance.round_scores) {
+                match.performance.round_scores.forEach(sr => {
+                    if (sr.winning_team === targetTeam) {
+                        roundsWon++;
+                    } else {
+                        roundsLost++;
+                    }
+                });
+            }
+            const isMatchWon = roundsWon > roundsLost;
+            const matchOutcomeText = isMatchWon ? 'WIN' : 'LOST';
+            const matchOutcomeClass = isMatchWon ? 'win' : 'lost';
+            const scoreSummary = `${roundsWon}-${roundsLost}`;
+
+            const card = document.createElement('div');
+            card.className = `match-card ${matchOutcomeClass}`;
+
+            // ── Calculate Highlights & Clutches ──────────────────────────────
+            let maxClutchSize = 0;
+            const multikills = { 5: 0, 4: 0, 3: 0 };
+            
+            if (match.performance && match.performance.round_scores) {
+                match.performance.round_scores.forEach(sr => {
+                    const killsInRound = sr.details ? sr.details.length : 0;
+                    if (killsInRound >= 5) multikills[5]++;
+                    else if (killsInRound === 4) multikills[4]++;
+                    else if (killsInRound === 3) multikills[3]++;
+                    
+                    if (sr.details) {
+                        sr.details.forEach(d => {
+                            if (d.reason && d.reason.includes('clutch')) {
+                                const m = d.reason.match(/1v(\d+)/);
+                                if (m) {
+                                    const size = parseInt(m[1], 10);
+                                    if (size > maxClutchSize) maxClutchSize = size;
+                                } else {
+                                    if (maxClutchSize === 0) maxClutchSize = 1;
+                                }
+                            }
+                        });
+                    }
+                });
+            }
+            
+            let highlightsHtml = '';
+            if (multikills[5] > 0) highlightsHtml += `<span class="badge ace">ACE x${multikills[5]}</span>`;
+            if (multikills[4] > 0) highlightsHtml += `<span class="badge quad">4K x${multikills[4]}</span>`;
+            if (multikills[3] > 0) highlightsHtml += `<span class="badge triple">3K x${multikills[3]}</span>`;
+            if (maxClutchSize > 0) highlightsHtml += `<span class="badge clutch">1v${maxClutchSize} CLUTCH</span>`;
+            
+            if (highlightsHtml) {
+                highlightsHtml = `<div class="match-highlights">${highlightsHtml}</div>`;
+            }
+
+            // ── Lobby Ranking Find ───────────────────────────────────────────
+            const rankIndex = match.scoreboard.findIndex(p => p.puuid === targetPuuid);
+            const rank = rankIndex !== -1 ? rankIndex + 1 : 10;
+            let rankText = `${rank}th`;
+            let rankClass = 'rank-other';
+            if (rank === 1) { rankText = 'MVP'; rankClass = 'rank-1'; }
+            else if (rank === 2) { rankText = '2nd'; rankClass = 'rank-2'; }
+            else if (rank === 3) { rankText = '3rd'; rankClass = 'rank-3'; }
+            
+            const rankBadgeHtml = `<span class="rank-badge ${rankClass}">${rankText}</span>`;
 
             // ── Header ──────────────────────────────────────────────────────
             const header = document.createElement('div');
@@ -198,14 +353,20 @@ function renderMatches(matches, targetPuuid) {
                 <div class="match-info">
                     <span class="match-map">
                         ${match.map || 'UNKNOWN'}
+                        ${rankBadgeHtml}
                         <span class="match-map-sep">//</span>
                         <span class="match-agent">${target.agent || 'Unknown'}</span>
                     </span>
-                    <span class="match-mode">${match.mode || 'Unknown Mode'}</span>
+                    <span class="match-mode">
+                        ${match.mode || 'Unknown Mode'}
+                        <span class="match-map-sep">//</span>
+                        <span class="outcome-text ${matchOutcomeClass}">${matchOutcomeText} (${scoreSummary})</span>
+                    </span>
+                    ${highlightsHtml}
                 </div>
                 <div class="match-header-right">
                     <div class="match-score-summary">
-                        <span class="score-chip ${cls}" data-target-score="${score}">0</span>
+                        <span class="score-chip" data-target-score="${score}">0</span>
                     </div>
                     <span class="chevron">›</span>
                 </div>
@@ -241,18 +402,20 @@ function renderMatches(matches, targetPuuid) {
                     const kills    = stats.kills   || 0;
                     const deaths   = stats.deaths  || 0;
                     const assists  = stats.assists || 0;
-                    const pCls     = getScoreClass(p.final_score);
+                    const colors = getInterpolatedColor(p.final_score);
 
                     rowsHtml += `
                         <tr class="${isTarget ? 'scoreboard-row-target' : ''}">
                             <td class="agent-col">${p.agent || 'N/A'}</td>
                             <td>
-                                <span class="player-name">${p.name}</span>
-                                <span class="player-tag">#${p.tag}</span>
+                                <span class="clickable-player" data-name="${p.name}" data-tag="${p.tag}">
+                                    <span class="player-name">${p.name}</span>
+                                    <span class="player-tag">#${p.tag}</span>
+                                </span>
                             </td>
                             <td>${acs}</td>
                             <td class="kda-cell">${kills}/${deaths}/${assists}</td>
-                            <td><span class="score-chip ${pCls}">${p.final_score}</span></td>
+                            <td><span class="score-chip" style="color: ${colors.text}; background: ${colors.bg}">${p.final_score}</span></td>
                         </tr>
                     `;
                 });
@@ -279,10 +442,106 @@ function renderMatches(matches, targetPuuid) {
                 `;
             }
 
+            // Build name lookup for round details
+            const nameLookup = {};
+            match.scoreboard.forEach(p => {
+                nameLookup[p.puuid] = `${p.name}#${p.tag}`;
+            });
+
+            // Build Rounds Breakdown HTML
+            let roundsHtml = '';
+            if (match.performance && match.performance.round_scores) {
+                match.performance.round_scores.forEach(sr => {
+                    const isWon = sr.winning_team === target.team;
+                    const roundOutcome = isWon ? 'WON' : 'LOST';
+                    const roundScore = sr.round_score;
+                    const scoreSign = roundScore >= 0 ? `+${roundScore}` : `${roundScore}`;
+                    const scoreClass = roundScore >= 0 ? 'positive' : 'negative';
+                    
+                    let eventItems = '';
+                    
+                    if (sr.first_blood_bonus > 0) {
+                        eventItems += `
+                            <div class="round-event-item fb">
+                                <div class="round-event-bullet"></div>
+                                <div class="round-event-desc">Secured <span class="event-highlight">First Blood</span></div>
+                            </div>
+                        `;
+                    }
+                    if (sr.first_death_penalty > 0) {
+                        eventItems += `
+                            <div class="round-event-item fd">
+                                <div class="round-event-bullet"></div>
+                                <div class="round-event-desc">Conceded <span class="event-highlight">First Death</span></div>
+                            </div>
+                        `;
+                    }
+                    
+                    if (sr.details && sr.details.length > 0) {
+                        sr.details.forEach(d => {
+                            const victimName = nameLookup[d.victim_puuid] || 'Unknown Player';
+                            let reasonStr = '';
+                            if (d.reason && d.reason.includes('clutch')) {
+                                const m = d.reason.match(/1v(\d+)/);
+                                const suffix = m ? `1v${m[1]} ` : '';
+                                reasonStr = ` - <span class="event-clutch">${suffix}CLUTCH</span>`;
+                            } else if (d.reason && d.reason.includes('eco damage')) {
+                                reasonStr = ` - <span class="event-eco">ECO DAMAGE</span>`;
+                            }
+                            
+                            eventItems += `
+                                <div class="round-event-item">
+                                    <div class="round-event-bullet"></div>
+                                    <div class="round-event-desc">Killed <span class="event-highlight">${victimName}</span>${reasonStr}</div>
+                                </div>
+                            `;
+                        });
+                    }
+                    
+                    if (!eventItems) {
+                        eventItems = `
+                            <div class="round-event-item">
+                                <div class="round-event-bullet"></div>
+                                <div class="round-event-desc" style="color:var(--text-muted)">No target interactions this round.</div>
+                            </div>
+                        `;
+                    }
+                    
+                    roundsHtml += `
+                        <div class="round-row-card ${isWon ? 'won' : 'lost'}">
+                            <div class="round-row-header">
+                                <div class="round-num-title">
+                                    Round ${String(sr.round_num).padStart(2, '0')}
+                                    <span class="round-outcome-lbl">${roundOutcome}</span>
+                                </div>
+                                <div class="round-row-score-chip ${scoreClass}">${scoreSign} pts</div>
+                            </div>
+                            <div class="round-events-list">
+                                ${eventItems}
+                            </div>
+                        </div>
+                    `;
+                });
+            }
+
             details.innerHTML = `
                 <div class="match-details-inner">
-                    <p class="scoreboard-label">Match Scoreboard</p>
-                    ${scoreboardHtml}
+                    <div class="match-tabs">
+                        <button class="tab-btn active" data-target="scoreboard-${match.match_id}">Scoreboard</button>
+                        <button class="tab-btn" data-target="rounds-${match.match_id}">Rounds</button>
+                    </div>
+                    
+                    <div class="tab-content" id="scoreboard-${match.match_id}">
+                        <p class="scoreboard-label">Match Scoreboard</p>
+                        ${scoreboardHtml}
+                    </div>
+                    
+                    <div class="tab-content hidden" id="rounds-${match.match_id}">
+                        <p class="scoreboard-label">Round-by-Round Breakdown</p>
+                        <div class="rounds-timeline">
+                            ${roundsHtml}
+                        </div>
+                    </div>
                 </div>
             `;
 
@@ -294,8 +553,8 @@ function renderMatches(matches, targetPuuid) {
                 // Run count-up on all score chips in this card on first open
                 if (!isOpen) {
                     card.querySelectorAll('.score-chip[data-target-score]').forEach(chip => {
-                        const target = parseInt(chip.dataset.targetScore, 10);
-                        animateCount(chip, target, 500);
+                        const targetVal = parseInt(chip.dataset.targetScore, 10);
+                        animateCount(chip, targetVal, 500);
                         delete chip.dataset.targetScore; // only animate once
                     });
                 }
@@ -305,11 +564,50 @@ function renderMatches(matches, targetPuuid) {
             const headerChip = header.querySelector('.score-chip[data-target-score]');
             if (headerChip) {
                 setTimeout(() => {
-                    const target = parseInt(headerChip.dataset.targetScore, 10);
-                    animateCount(headerChip, target, 700);
+                    const targetVal = parseInt(headerChip.dataset.targetScore, 10);
+                    animateCount(headerChip, targetVal, 700);
                     delete headerChip.dataset.targetScore;
                 }, 80);
             }
+
+            // ── Clickable player names ───────────────────────────────────────
+            const clickables = details.querySelectorAll('.clickable-player');
+            clickables.forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    const name = btn.getAttribute('data-name');
+                    const tag = btn.getAttribute('data-tag');
+                    if (name && tag) {
+                        document.getElementById('username').value = name;
+                        document.getElementById('tag').value = tag;
+                        document.getElementById('calcBtn').click();
+                        window.scrollTo({ top: 0, behavior: 'smooth' });
+                    }
+                });
+            });
+
+            // ── Tabs Switching ───────────────────────────────────────────────
+            const tabButtons = details.querySelectorAll('.tab-btn');
+            tabButtons.forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    const targetId = btn.getAttribute('data-target');
+                    
+                    // Toggle active button
+                    tabButtons.forEach(b => b.classList.remove('active'));
+                    btn.classList.add('active');
+                    
+                    // Toggle content visibility
+                    const tabContents = details.querySelectorAll('.tab-content');
+                    tabContents.forEach(tc => {
+                        if (tc.id === targetId) {
+                            tc.classList.remove('hidden');
+                        } else {
+                            tc.classList.add('hidden');
+                        }
+                    });
+                });
+            });
 
             card.appendChild(header);
             card.appendChild(details);
