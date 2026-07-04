@@ -15,10 +15,7 @@
 
         <main>
             <section class="input-card">
-                <div class="input-group">
-                    <label>MATCH ID</label>
-                    <input type="text" id="matchId" placeholder="e.g., a1b2c3d4-e5f6-7a8b-9c0d-1e2f3a4b5c6d">
-                </div>
+
                 <div class="input-row">
                     <div class="input-group flex-3">
                         <label>RIOT ID / USERNAME</label>
@@ -35,25 +32,8 @@
             <section id="errorState" class="error-card hidden"></section>
 
             <section id="resultState" class="result-container hidden">
-                <div class="score-hero">
-                    <div class="score-circle">
-                        <span id="finalScore" class="score-num">0</span>
-                        <span class="score-max">/ 1000</span>
-                    </div>
-                    <div class="metrics">
-                        <div class="metric-box">
-                            <span class="label">AVG ROUND SCORE</span>
-                            <span id="avgRoundScore" class="val">0.0</span>
-                        </div>
-                        <div class="metric-box">
-                            <span class="label">TOTAL ROUNDS EVALUATED</span>
-                            <span id="totalRounds" class="val">0</span>
-                        </div>
-                    </div>
-                </div>
-
-                <h2>ROUND BY ROUND DATA LOGS</h2>
-                <div id="roundsLog" class="rounds-log"></div>
+                <div id="matchList"></div>
+                <button id="loadMoreBtn" class="hidden" style="margin-top: 20px;">LOAD MORE MATCHES</button>
             </section>
         </main>
     </div>

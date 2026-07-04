@@ -208,3 +208,94 @@ h2 {
 .flex-1 {
     flex: 1;
 }
+
+/* Match History List Styles */
+.match-card {
+    background-color: var(--card-dark);
+    border: 1px solid var(--border-grey);
+    margin-bottom: 20px;
+    transition: border-color 0.2s;
+    overflow: hidden;
+}
+
+.match-card:hover {
+    border-color: var(--v-red);
+}
+
+.match-header {
+    padding: 20px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    cursor: pointer;
+    background-color: #1a1a1a;
+}
+
+.match-header:hover {
+    background-color: #222;
+}
+
+.match-info {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+}
+
+.match-map {
+    font-size: 16px;
+    font-weight: bold;
+    color: var(--v-red);
+    text-transform: uppercase;
+}
+
+.match-mode {
+    font-size: 11px;
+    color: var(--text-muted);
+}
+
+.match-score-summary {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+}
+
+.match-score-num {
+    font-size: 24px;
+    font-weight: bold;
+}
+
+.match-details {
+    padding: 20px;
+    border-top: 1px solid var(--border-grey);
+    background-color: #111;
+}
+
+.scoreboard-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 15px;
+}
+
+.scoreboard-table th {
+    text-align: left;
+    padding: 10px;
+    font-size: 11px;
+    color: var(--text-muted);
+    border-bottom: 1px solid var(--border-grey);
+}
+
+.scoreboard-table td {
+    padding: 12px 10px;
+    font-size: 13px;
+    border-bottom: 1px solid #1a1a1a;
+}
+
+.scoreboard-row-target {
+    background-color: rgba(255, 70, 85, 0.1);
+    border-left: 2px solid var(--v-red);
+}
+
+.scoreboard-table td.agent-col {
+    color: var(--text-muted);
+    font-weight: bold;
+}

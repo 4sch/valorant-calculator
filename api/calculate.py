@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from typing import Any
 from flask import Flask, request, jsonify
 from flask_cors import CORS
+import urllib.parse
 
 app = Flask(__name__, static_folder='../', static_url_path='')
 CORS(app)
@@ -237,41 +238,98 @@ class ValorantPerformanceEngine:
 def handle_calculation():
     try:
         req_data = request.get_json() or {}
-        match_id = req_data.get("match_id", "").strip()
         username = req_data.get("username", "").strip()
         tag = req_data.get("tag", "").strip()
+        page = int(req_data.get("page", 1))
         
-        if not match_id or not username or not tag:
-            return jsonify({"error": "Missing match_id, username, or tag parameter"}), 400
+        if not username or not tag:
+            return jsonify({"error": "Missing username or tag parameter"}), 400
             
-        url = f"https://api.henrikdev.xyz/valorant/v2/match/{match_id}"
         headers = {"Authorization": os.environ.get("VALORANT_API_KEY", "")}
-        response = requests.get(url, headers=headers, timeout=12)
         
-        if response.status_code != 200:
-            return jsonify({"error": f"Riot API proxy error (Status {response.status_code})"}), 502
+        # 1. Fetch account to get region and puuid
+        encoded_name = urllib.parse.quote(username)
+        encoded_tag = urllib.parse.quote(tag)
+        acc_url = f"https://api.henrikdev.xyz/valorant/v1/account/{encoded_name}/{encoded_tag}"
+        acc_res = requests.get(acc_url, headers=headers, timeout=12)
+        
+        if acc_res.status_code != 200:
+            return jsonify({"error": f"Failed to fetch account (Status {acc_res.status_code})"}), 502
             
-        payload = response.json()
-        match_data = payload.get("data", {})
-        if not match_data:
-            return jsonify({"error": "Match dataset empty or invalid ID"}), 404
+        acc_data = acc_res.json().get("data", {})
+        region = acc_data.get("region")
+        target_puuid = acc_data.get("puuid")
+        
+        if not region or not target_puuid:
+            return jsonify({"error": "Invalid account data received"}), 500
             
-        # Resolve the player's PUUID from the match data
-        all_players = match_data.get("players", {}).get("all_players", [])
-        puuid = None
-        for player in all_players:
-            p_name = player.get("name", "")
-            p_tag = player.get("tag", "")
-            if p_name.lower() == username.lower() and p_tag.lower() == tag.lower():
-                puuid = player.get("puuid")
-                break
+        # 2. Fetch Match History
+        match_url = f"https://api.henrikdev.xyz/valorant/v3/matches/{region}/{encoded_name}/{encoded_tag}?size=5&page={page}"
+        match_res = requests.get(match_url, headers=headers, timeout=15)
+        
+        if match_res.status_code != 200:
+            return jsonify({"error": f"Failed to fetch match history (Status {match_res.status_code})"}), 502
+            
+        matches_payload = match_res.json().get("data", [])
+        
+        # 3. Process matches
+        results = []
+        for match_data in matches_payload:
+            metadata = match_data.get("metadata") or {}
+            match_id = metadata.get("matchid")
+            map_name = metadata.get("map")
+            mode = metadata.get("mode")
+            
+            players_dict = match_data.get("players") or {}
+            all_players = players_dict.get("all_players") or []
+            
+            target_player_data = next((p for p in all_players if p.get("puuid") == target_puuid), None)
+            if not target_player_data:
+                continue
                 
-        if not puuid:
-            return jsonify({"error": f"Player '{username}#{tag}' was not found in match {match_id}"}), 404
+            # Scoreboard for all players
+            scoreboard = []
+            for p in all_players:
+                p_puuid = p.get("puuid")
+                if not p_puuid: continue
+                try:
+                    engine = ValorantPerformanceEngine(match_data, p_puuid)
+                    p_result = engine.calculate()
+                    scoreboard.append({
+                        "puuid": p_puuid,
+                        "name": p.get("name"),
+                        "tag": p.get("tag"),
+                        "team": p.get("team"),
+                        "agent": p.get("character"),
+                        "stats": p.get("stats", {}),
+                        "final_score": p_result["final_score"],
+                        "average_round_score": p_result["average_round_score"]
+                    })
+                except Exception:
+                    pass # Skip if player has no team or invalid data
+                    
+            scoreboard.sort(key=lambda x: x["final_score"], reverse=True)
             
-        engine = ValorantPerformanceEngine(match_data, puuid)
-        result = engine.calculate()
-        return jsonify(result), 200
+            # Target player performance
+            engine_target = ValorantPerformanceEngine(match_data, target_puuid)
+            target_result = engine_target.calculate()
+            
+            results.append({
+                "match_id": match_id,
+                "map": map_name,
+                "mode": mode,
+                "target_player": {
+                    "name": target_player_data.get("name"),
+                    "tag": target_player_data.get("tag"),
+                    "agent": target_player_data.get("character"),
+                    "team": target_player_data.get("team"),
+                    "stats": target_player_data.get("stats", {})
+                },
+                "performance": target_result,
+                "scoreboard": scoreboard
+            })
+            
+        return jsonify({"matches": results, "page": page, "target_puuid": target_puuid}), 200
         
     except Exception as e:
         return jsonify({"error": str(e)}), 500
