@@ -287,7 +287,7 @@ def handle_calculation():
         # 2. Fetch Lifetime matches (paginated)
         encoded_name = urllib.parse.quote(username)
         encoded_tag = urllib.parse.quote(tag)
-        lifetime_url = f"https://api.henrikdev.xyz/valorant/v1/lifetime/matches/{region}/{encoded_name}/{encoded_tag}?size=5&page={page}"
+        lifetime_url = f"https://api.henrikdev.xyz/valorant/v1/lifetime/matches/{region}/{encoded_name}/{encoded_tag}?size=5&page={page}&mode=competitive"
         lifetime_res = requests.get(lifetime_url, headers=headers, timeout=15)
         
         if lifetime_res.status_code != 200:
@@ -421,7 +421,7 @@ def handle_performance():
         # 2. Fetch Lifetime matches (last 20)
         encoded_name = urllib.parse.quote(username)
         encoded_tag = urllib.parse.quote(tag)
-        lifetime_url = f"https://api.henrikdev.xyz/valorant/v1/lifetime/matches/{region}/{encoded_name}/{encoded_tag}?size=20&page=1"
+        lifetime_url = f"https://api.henrikdev.xyz/valorant/v1/lifetime/matches/{region}/{encoded_name}/{encoded_tag}?size=20&page=1&mode=competitive"
         lifetime_res = requests.get(lifetime_url, headers=headers, timeout=15)
         
         if lifetime_res.status_code != 200:
