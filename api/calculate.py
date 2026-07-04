@@ -39,13 +39,15 @@ class ScoredRound:
     round_score: float
     details: list[dict[str, Any]] = field(default_factory=list)
 
-FIRST_BLOOD_BONUS: int = 20
-FIRST_DEATH_PENALTY: int = 50
+FIRST_BLOOD_BONUS: int = 25
+FIRST_DEATH_PENALTY: int = 35
 CLUTCH_MULTIPLIER: float = 1.5
 FULL_BUY_THRESHOLD: int = 3500
-PERFECT_ROUND_BENCHMARK: float = 200.0
-ECONOMY_RESET_ROUNDS: frozenset[int] = frozenset({12, 24})
-CURVE_FACTOR: float = 0.5
+# FIXED: 200.0 was mathematically impossible. 75.0 allows a 2-3k round to score highly.
+PERFECT_ROUND_BENCHMARK: float = 75.0  
+# FIXED: Round 1 and 13 are pistol/economy resets. 
+ECONOMY_RESET_ROUNDS: frozenset[int] = frozenset({1, 13})
+CURVE_FACTOR: float = 0.6
 
 # ─── THE SCORING ENGINE ───
 class ValorantPerformanceEngine:
@@ -158,36 +160,53 @@ class ValorantPerformanceEngine:
         is_fb: bool = ctx.first_blood_puuid == self.target_puuid
         is_fd: bool = ctx.first_death_puuid == self.target_puuid
         clutch_victims: set[str] = self._find_clutch_kills(ctx)
+        
         kills_score: float = 0.0
         details: list[dict[str, Any]] = []
+        
         for ke in ctx.kill_events:
             if ke.killer_puuid != self.target_puuid: continue
             victim = ke.victim_puuid
             if not victim: continue
+            
             enemy_acs: float = self.acs_lookup.get(victim, 0.0)
             dkv: float = enemy_acs / 10.0
+            
             multiplier: float = 1.0
             reason: str = "standard"
+            
             if is_round_lost:
-                if ctx.round_num in ECONOMY_RESET_ROUNDS or ctx.round_num == self.total_rounds:
-                    multiplier, reason = 0.0, "economy-reset round"
+                next_loadout = self._get_enemy_loadout_next_round(victim, raw_index)
+                if next_loadout is not None and next_loadout < FULL_BUY_THRESHOLD:
+                    # You killed them and damaged their economy for next round! High value.
+                    multiplier, reason = 1.25, f"eco damage ({next_loadout})"
+                elif ctx.round_num in ECONOMY_RESET_ROUNDS:
+                    # Lost a pistol round
+                    multiplier, reason = 0.8, "pistol round (lost)"
                 else:
-                    next_loadout = self._get_enemy_loadout_next_round(victim, raw_index)
-                    if next_loadout is None: multiplier, reason = 1.0, "no next-round data"
-                    elif next_loadout < FULL_BUY_THRESHOLD: multiplier, reason = 1.0, f"broke eco ({next_loadout})"
-                    else: multiplier, reason = 0.0, f"futile exit frag ({next_loadout})"
+                    # Standard kill, but the round was ultimately lost. Still worth base value.
+                    multiplier, reason = 1.0, "standard (lost round)"
             else:
-                if victim in clutch_victims: multiplier, reason = CLUTCH_MULTIPLIER, "clutch"
+                if victim in clutch_victims: 
+                    multiplier, reason = CLUTCH_MULTIPLIER, "clutch"
+                elif ctx.round_num in ECONOMY_RESET_ROUNDS:
+                    # Won a pistol round! Huge advantage.
+                    multiplier, reason = 1.5, "pistol round (won)"
+                else:
+                    multiplier, reason = 1.0, "standard"
+                    
             kill_points = dkv * multiplier
             kills_score += kill_points
-            details.append({"victim_puuid": victim, "enemy_acs": enemy_acs, "dkv": dkv, 
-                            "multiplier": multiplier, "reason": reason, "kill_points": kill_points})
+            details.append({"victim_puuid": victim, "enemy_acs": round(enemy_acs, 1), "dkv": round(dkv, 2), 
+                            "multiplier": multiplier, "reason": reason, "kill_points": round(kill_points, 2)})
+                            
         fb_bonus = FIRST_BLOOD_BONUS if is_fb else 0
         fd_penalty = FIRST_DEATH_PENALTY if is_fd else 0
         round_score = kills_score + fb_bonus - fd_penalty
-        return ScoredRound(round_num=ctx.round_num, kills_score=round(kills_score, 4),
+        
+        return ScoredRound(round_num=ctx.round_num, kills_score=round(kills_score, 2),
                            first_blood_bonus=float(fb_bonus), first_death_penalty=float(fd_penalty),
-                           round_score=round(round_score, 4), details=details)
+                           round_score=round(round_score, 2), details=details)
 
     def calculate(self) -> dict[str, Any]:
         scored_rounds: list[ScoredRound] = []
