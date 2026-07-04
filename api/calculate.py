@@ -318,6 +318,8 @@ def handle_calculation():
                 "match_id": match_id,
                 "map": map_name,
                 "mode": mode,
+                "game_start": metadata.get("game_start"),
+                "game_start_patched": metadata.get("game_start_patched"),
                 "target_player": {
                     "name": target_player_data.get("name"),
                     "tag": target_player_data.get("tag"),
