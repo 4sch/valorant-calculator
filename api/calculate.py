@@ -348,73 +348,14 @@ class ValorantPerformanceEngine:
         return {"target_puuid": self.target_puuid, "total_rounds": r, "round_scores": serialized_rounds,
                 "average_round_score": round(avg_round_score, 4), "final_score": final_score}
 
-# ─── PERSISTENT CACHING SYSTEM ───
-import json
-import tempfile
-
-# Dynamically gets the OS-specific temporary writable directory (e.g. /tmp on Vercel/Linux, AppData/Temp on Windows)
-temp_base = tempfile.gettempdir()
-CACHE_DIR = os.path.join(temp_base, 'valorant_match_cache')
-ACCOUNT_CACHE_FILE = os.path.join(temp_base, 'valorant_account_cache.json')
-
-os.makedirs(CACHE_DIR, exist_ok=True)
-ACCOUNT_CACHE = {}
-MATCH_CACHE = {}
-
-def load_account_cache():
-    global ACCOUNT_CACHE
-    ACCOUNT_CACHE = {
-        ("nocap on god bro", "deeep"): {
-            "region": "eu",
-            "puuid": "3f123e34-b8cf-57bf-a4d7-e9349dde21c2"
-        }
+# ─── IN-MEMORY CACHING SYSTEM ───
+ACCOUNT_CACHE = {
+    ("nocap on god bro", "deeep"): {
+        "region": "eu",
+        "puuid": "3f123e34-b8cf-57bf-a4d7-e9349dde21c2"
     }
-    if os.path.exists(ACCOUNT_CACHE_FILE):
-        try:
-            with open(ACCOUNT_CACHE_FILE, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-                for k, v in data.items():
-                    if '#' in k:
-                        parts = k.split('#', 1)
-                        ACCOUNT_CACHE[(parts[0].lower(), parts[1].lower())] = v
-        except Exception:
-            pass
-
-def save_account_cache():
-    try:
-        data = {}
-        for (username, tag), v in ACCOUNT_CACHE.items():
-            data[f"{username}#{tag}"] = v
-        with open(ACCOUNT_CACHE_FILE, 'w', encoding='utf-8') as f:
-            json.dump(data, f, ensure_ascii=False)
-    except Exception:
-        pass
-
-def get_cached_match(match_id):
-    if match_id in MATCH_CACHE:
-        return MATCH_CACHE[match_id]
-    filepath = os.path.join(CACHE_DIR, f"{match_id}.json")
-    if os.path.exists(filepath):
-        try:
-            with open(filepath, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-                MATCH_CACHE[match_id] = data
-                return data
-        except Exception:
-            pass
-    return None
-
-def save_match_to_cache(match_id, data):
-    MATCH_CACHE[match_id] = data
-    filepath = os.path.join(CACHE_DIR, f"{match_id}.json")
-    try:
-        with open(filepath, 'w', encoding='utf-8') as f:
-            json.dump(data, f, ensure_ascii=False)
-    except Exception:
-        pass
-
-load_account_cache()
-save_account_cache()
+}
+MATCH_CACHE = {}
 
 @app.route('/api/calculate', methods=['POST'])
 def handle_calculation():
@@ -455,7 +396,6 @@ def handle_calculation():
                 return jsonify({"error": "Invalid account data received"}), 500
                 
             ACCOUNT_CACHE[cache_key] = {"region": region, "puuid": target_puuid}
-            save_account_cache()
             
         # 2. Fetch Lifetime matches (paginated)
         encoded_name = urllib.parse.quote(username)
@@ -473,9 +413,8 @@ def handle_calculation():
         from concurrent.futures import ThreadPoolExecutor
         
         def fetch_match_details(match_id):
-            cached = get_cached_match(match_id)
-            if cached:
-                return cached
+            if match_id in MATCH_CACHE:
+                return MATCH_CACHE[match_id]
             for attempt in range(3):
                 try:
                     url = f"https://api.henrikdev.xyz/valorant/v2/match/{match_id}"
@@ -483,7 +422,7 @@ def handle_calculation():
                     if res.status_code == 200:
                         data = res.json().get("data", {})
                         if data:
-                            save_match_to_cache(match_id, data)
+                            MATCH_CACHE[match_id] = data
                         return data
                     elif res.status_code == 429:
                         time.sleep(1.0 * (attempt + 1))
@@ -594,7 +533,6 @@ def handle_performance():
                 return jsonify({"error": "Invalid account data received"}), 500
                 
             ACCOUNT_CACHE[cache_key] = {"region": region, "puuid": target_puuid}
-            save_account_cache()
             
         # 2. Fetch Lifetime matches (last 10)
         encoded_name = urllib.parse.quote(username)
@@ -610,9 +548,8 @@ def handle_performance():
         
         # 3. Fetch full match details in parallel
         def fetch_match_details(match_id):
-            cached = get_cached_match(match_id)
-            if cached:
-                return cached
+            if match_id in MATCH_CACHE:
+                return MATCH_CACHE[match_id]
             for attempt in range(3):
                 try:
                     url = f"https://api.henrikdev.xyz/valorant/v2/match/{match_id}"
@@ -620,7 +557,7 @@ def handle_performance():
                     if res.status_code == 200:
                         data = res.json().get("data", {})
                         if data:
-                            save_match_to_cache(match_id, data)
+                            MATCH_CACHE[match_id] = data
                         return data
                     elif res.status_code == 429:
                         time.sleep(1.0 * (attempt + 1))
