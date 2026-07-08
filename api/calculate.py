@@ -44,6 +44,7 @@ class ScoredRound:
     damage_score: float
     first_blood_bonus: float
     first_death_penalty: float
+    clutch_bonus: float
     round_score: float
     winning_team: str
     details: list[dict[str, Any]] = field(default_factory=list)
@@ -178,6 +179,7 @@ class ValorantPerformanceEngine:
         clutch_victims: dict[str, int] = self._find_clutch_kills(ctx)
         
         kills_score: float = 0.0
+        clutch_bonus: float = 0.0
         details: list[dict[str, Any]] = []
         
         for ke in ctx.kill_events:
@@ -208,10 +210,24 @@ class ValorantPerformanceEngine:
                     # Standard kill in a won round (Includes Pistol rounds now!)
                     multiplier, reason = 1.0, "standard"
                     
-            kill_points = dkv * multiplier
-            kills_score += kill_points
-            details.append({"victim_puuid": victim, "enemy_acs": round(enemy_acs, 1), "dkv": round(dkv, 2), 
-                            "multiplier": multiplier, "reason": reason, "kill_points": round(kill_points, 2)})
+            clutch_points = 0.0
+            if "clutch" in reason:
+                kill_points_base = dkv * 1.0
+                clutch_points = dkv * (multiplier - 1.0)
+            else:
+                kill_points_base = dkv * multiplier
+                
+            kills_score += kill_points_base
+            clutch_bonus += clutch_points
+            details.append({
+                "victim_puuid": victim,
+                "enemy_acs": round(enemy_acs, 1),
+                "dkv": round(dkv, 2), 
+                "multiplier": multiplier,
+                "reason": reason,
+                "kill_points": round(kill_points_base, 2),
+                "clutch_bonus_points": round(clutch_points, 2)
+            })
                             
         fb_bonus = FIRST_BLOOD_BONUS if is_fb else 0
         fd_penalty = FIRST_DEATH_PENALTY if is_fd else 0
@@ -219,12 +235,13 @@ class ValorantPerformanceEngine:
         # ── Damage score ──────────────────────────────────────────────────────
         damage_score = self._calculate_damage_score(ctx, raw_index)
         
-        combat_score = kills_score + damage_score
+        combat_score = kills_score + clutch_bonus + damage_score
         round_score = combat_score + fb_bonus - fd_penalty
         
         return ScoredRound(round_num=ctx.round_num, kills_score=round(kills_score, 2),
                            damage_score=round(damage_score, 2),
                            first_blood_bonus=float(fb_bonus), first_death_penalty=float(fd_penalty),
+                           clutch_bonus=round(clutch_bonus, 2),
                            round_score=round(round_score, 2), details=details, winning_team=ctx.winning_team)
 
     def _calculate_damage_score(self, ctx: RoundContext, raw_index: int) -> float:
@@ -322,6 +339,7 @@ class ValorantPerformanceEngine:
                 "damage_score": sr.damage_score,
                 "first_blood_bonus": sr.first_blood_bonus,
                 "first_death_penalty": sr.first_death_penalty,
+                "clutch_bonus": sr.clutch_bonus,
                 "round_score": sr.round_score,
                 "winning_team": sr.winning_team,
                 "details": sr.details

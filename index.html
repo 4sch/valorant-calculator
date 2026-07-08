@@ -45,6 +45,10 @@
             <section id="errorState" class="error-card hidden"></section>
 
             <section id="performanceState" class="performance-card hidden">
+                <div class="perf-loading-overlay">
+                    <div class="perf-spinner"></div>
+                    <div class="perf-loading-text">Calculating performance analytics...</div>
+                </div>
                 <div class="perf-header">Recent Performance (Last 20 Matches)</div>
                 <div class="perf-body">
                     <div class="perf-graphic">
@@ -107,7 +111,10 @@
 
             <section id="resultState" class="result-container hidden">
                 <div id="matchList"></div>
-                <button id="loadMoreBtn" class="hidden"><span>Load More Matches</span></button>
+                <div class="load-more-container">
+                    <button id="loadMoreBtn" class="hidden"><span>Load More Matches</span></button>
+                    <div id="noMoreMatches" class="no-more-matches hidden">All matches loaded</div>
+                </div>
             </section>
         </main>
 

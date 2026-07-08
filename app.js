@@ -51,6 +51,7 @@ document.getElementById('calcBtn').addEventListener('click', () => {
     document.getElementById('resultState').classList.add('hidden');
     document.getElementById('performanceState').classList.add('hidden');
     document.getElementById('loadMoreBtn').classList.add('hidden');
+    document.getElementById('noMoreMatches').classList.add('hidden');
 
     fetchMatches();
 });
@@ -191,15 +192,25 @@ async function fetchMatches() {
             allLoadedMatches.push(...data.matches);
             renderMatches(allLoadedMatches, data.target_puuid);
             resultCard.classList.remove('hidden');
-            loadMoreBtn.classList.remove('hidden');
+            
+            if (data.matches.length < 5) {
+                loadMoreBtn.classList.add('hidden');
+                document.getElementById('noMoreMatches').classList.remove('hidden');
+            } else {
+                loadMoreBtn.classList.remove('hidden');
+                document.getElementById('noMoreMatches').classList.add('hidden');
+            }
             
             if (currentPage === 1) {
+                const perfCard = document.getElementById('performanceState');
+                perfCard.classList.remove('hidden');
+                perfCard.classList.add('loading');
                 fetchPerformance();
             }
         } else {
             loadMoreBtn.classList.add('hidden');
             if (currentPage > 1) {
-                alert("No older matches found.");
+                document.getElementById('noMoreMatches').classList.remove('hidden');
             } else {
                 showError("No matches found for this user.");
             }
@@ -225,7 +236,10 @@ async function fetchPerformance() {
             body: JSON.stringify({ username: currentUsername, tag: currentTag })
         });
         
-        if (!response.ok) return; // Silent fail for performance stats
+        if (!response.ok) {
+            perfCard.classList.add('hidden');
+            return; // Silent fail for performance stats
+        }
         
         const data = await response.json();
         
@@ -256,6 +270,9 @@ async function fetchPerformance() {
         
     } catch (e) {
         console.error("Performance fetch error:", e);
+        perfCard.classList.add('hidden');
+    } finally {
+        perfCard.classList.remove('loading');
     }
 }
 
@@ -274,9 +291,31 @@ function renderTrendChart(history) {
     }
 
     const scores = history.map(h => h.score);
-    const labels = history.map((h, i) => {
+    
+    // Disambiguate matching date labels using counts
+    const tempLabels = [];
+    const dateCounts = {};
+    history.forEach((h, i) => {
         const d = h.date ? new Date(h.date * 1000) : null;
-        return d ? `${d.getDate()}/${d.getMonth() + 1}` : `M${i + 1}`;
+        if (d) {
+            const dateStr = `${d.getDate()}/${d.getMonth() + 1}`;
+            dateCounts[dateStr] = (dateCounts[dateStr] || 0) + 1;
+            tempLabels.push({ dateStr, count: dateCounts[dateStr] });
+        } else {
+            tempLabels.push({ dateStr: `M${i + 1}`, count: 1 });
+        }
+    });
+
+    const labels = tempLabels.map(item => {
+        const totalOccurrences = history.filter(h => {
+            const d = h.date ? new Date(h.date * 1000) : null;
+            return d && `${d.getDate()}/${d.getMonth() + 1}` === item.dateStr;
+        }).length;
+        
+        if (totalOccurrences > 1) {
+            return `${item.dateStr} (#${item.count})`;
+        }
+        return item.dateStr;
     });
 
     // Rolling average (window=5)
@@ -409,66 +448,74 @@ function renderAgentMapAnalytics(agents, maps) {
     agentList.innerHTML = '';
     mapList.innerHTML = '';
     
-    agents.slice(0, 5).forEach(a => {
-        const item = document.createElement('div');
-        item.className = 'analytics-item';
-        
-        const width = Math.min(100, Math.max(0, a.average_score / 10));
-        const color = getScoreColor(a.average_score);
-        const wrColor = a.winrate >= 60 ? '#4ade80' : a.winrate >= 45 ? '#facc15' : '#f87171';
-        const wrBg = a.winrate >= 60 ? 'rgba(74,222,128,0.12)' : a.winrate >= 45 ? 'rgba(250,204,21,0.12)' : 'rgba(248,113,113,0.12)';
-        
-        item.innerHTML = `
-            <div class="analytics-item-header">
-                <span class="analytics-item-name">${a.agent} <span style="font-size: 10px; color: var(--text-muted); font-weight: 400;">(${a.matches} matches)</span></span>
-                <span class="analytics-item-score" style="color: ${color}">${a.average_score}</span>
-            </div>
-            <div class="analytics-item-stats">
-                <span class="winrate-badge" style="color: ${wrColor}; background: ${wrBg};">WR ${a.winrate}%</span>
-                <span>K/D/A: ${(a.kills/a.matches).toFixed(1)} / ${(a.deaths/a.matches).toFixed(1)} / ${(a.assists/a.matches).toFixed(1)}</span>
-            </div>
-            <div class="analytics-bar-bg">
-                <div class="analytics-bar-fill" style="width: 0%; background: ${color}"></div>
-            </div>
-        `;
-        agentList.appendChild(item);
-        
-        // Trigger animation
-        setTimeout(() => {
-            const fill = item.querySelector('.analytics-bar-fill');
-            if (fill) fill.style.width = width + '%';
-        }, 50);
-    });
+    if (!agents || agents.length === 0) {
+        agentList.innerHTML = `<div class="empty-analytics">No Agent history found.</div>`;
+    } else {
+        agents.slice(0, 5).forEach(a => {
+            const item = document.createElement('div');
+            item.className = 'analytics-item';
+            
+            const width = Math.min(100, Math.max(0, a.average_score / 10));
+            const color = getScoreColor(a.average_score);
+            const wrColor = a.winrate >= 60 ? '#4ade80' : a.winrate >= 45 ? '#facc15' : '#f87171';
+            const wrBg = a.winrate >= 60 ? 'rgba(74,222,128,0.12)' : a.winrate >= 45 ? 'rgba(250,204,21,0.12)' : 'rgba(248,113,113,0.12)';
+            
+            item.innerHTML = `
+                <div class="analytics-item-header">
+                    <span class="analytics-item-name">${a.agent} <span style="font-size: 10px; color: var(--text-muted); font-weight: 400;">(${a.matches} matches)</span></span>
+                    <span class="analytics-item-score" style="color: ${color}">${a.average_score}</span>
+                </div>
+                <div class="analytics-item-stats">
+                    <span class="winrate-badge" style="color: ${wrColor}; background: ${wrBg};">WR ${a.winrate}%</span>
+                    <span>K/D/A: ${(a.kills/a.matches).toFixed(1)} / ${(a.deaths/a.matches).toFixed(1)} / ${(a.assists/a.matches).toFixed(1)}</span>
+                </div>
+                <div class="analytics-bar-bg">
+                    <div class="analytics-bar-fill" style="width: 0%; background: ${color}"></div>
+                </div>
+            `;
+            agentList.appendChild(item);
+            
+            // Trigger animation
+            setTimeout(() => {
+                const fill = item.querySelector('.analytics-bar-fill');
+                if (fill) fill.style.width = width + '%';
+            }, 50);
+        });
+    }
     
-    maps.slice(0, 5).forEach(m => {
-        const item = document.createElement('div');
-        item.className = 'analytics-item';
-        
-        const width = Math.min(100, Math.max(0, m.average_score / 10));
-        const color = getScoreColor(m.average_score);
-        const wrColor = m.winrate >= 60 ? '#4ade80' : m.winrate >= 45 ? '#facc15' : '#f87171';
-        const wrBg = m.winrate >= 60 ? 'rgba(74,222,128,0.12)' : m.winrate >= 45 ? 'rgba(250,204,21,0.12)' : 'rgba(248,113,113,0.12)';
-        
-        item.innerHTML = `
-            <div class="analytics-item-header">
-                <span class="analytics-item-name">${m.map} <span style="font-size: 10px; color: var(--text-muted); font-weight: 400;">(${m.matches} matches)</span></span>
-                <span class="analytics-item-score" style="color: ${color}">${m.average_score}</span>
-            </div>
-            <div class="analytics-item-stats">
-                <span class="winrate-badge" style="color: ${wrColor}; background: ${wrBg};">WR ${m.winrate}%</span>
-            </div>
-            <div class="analytics-bar-bg">
-                <div class="analytics-bar-fill" style="width: 0%; background: ${color}"></div>
-            </div>
-        `;
-        mapList.appendChild(item);
-        
-        // Trigger animation
-        setTimeout(() => {
-            const fill = item.querySelector('.analytics-bar-fill');
-            if (fill) fill.style.width = width + '%';
-        }, 50);
-    });
+    if (!maps || maps.length === 0) {
+        mapList.innerHTML = `<div class="empty-analytics">No Map history found.</div>`;
+    } else {
+        maps.slice(0, 5).forEach(m => {
+            const item = document.createElement('div');
+            item.className = 'analytics-item';
+            
+            const width = Math.min(100, Math.max(0, m.average_score / 10));
+            const color = getScoreColor(m.average_score);
+            const wrColor = m.winrate >= 60 ? '#4ade80' : m.winrate >= 45 ? '#facc15' : '#f87171';
+            const wrBg = m.winrate >= 60 ? 'rgba(74,222,128,0.12)' : m.winrate >= 45 ? 'rgba(250,204,21,0.12)' : 'rgba(248,113,113,0.12)';
+            
+            item.innerHTML = `
+                <div class="analytics-item-header">
+                    <span class="analytics-item-name">${m.map} <span style="font-size: 10px; color: var(--text-muted); font-weight: 400;">(${m.matches} matches)</span></span>
+                    <span class="analytics-item-score" style="color: ${color}">${m.average_score}</span>
+                </div>
+                <div class="analytics-item-stats">
+                    <span class="winrate-badge" style="color: ${wrColor}; background: ${wrBg};">WR ${m.winrate}%</span>
+                </div>
+                <div class="analytics-bar-bg">
+                    <div class="analytics-bar-fill" style="width: 0%; background: ${color}"></div>
+                </div>
+            `;
+            mapList.appendChild(item);
+            
+            // Trigger animation
+            setTimeout(() => {
+                const fill = item.querySelector('.analytics-bar-fill');
+                if (fill) fill.style.width = width + '%';
+            }, 50);
+        });
+    }
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────
@@ -697,7 +744,7 @@ function renderMatches(matches, targetPuuid) {
                         eventItems += `
                             <div class="round-event-item fb">
                                 <div class="round-event-bullet"></div>
-                                <div class="round-event-desc">Secured <span class="event-highlight">First Blood</span></div>
+                                <div class="round-event-desc">Secured <span class="event-highlight">First Blood</span> <span class="event-pts">(+${sr.first_blood_bonus.toFixed(1)} pts)</span></div>
                             </div>
                         `;
                     }
@@ -705,7 +752,7 @@ function renderMatches(matches, targetPuuid) {
                         eventItems += `
                             <div class="round-event-item fd">
                                 <div class="round-event-bullet"></div>
-                                <div class="round-event-desc">Conceded <span class="event-highlight">First Death</span></div>
+                                <div class="round-event-desc">Conceded <span class="event-highlight">First Death</span> <span class="event-pts">(-${sr.first_death_penalty.toFixed(1)} pts)</span></div>
                             </div>
                         `;
                     }
@@ -718,7 +765,7 @@ function renderMatches(matches, targetPuuid) {
                             if (d.reason && d.reason.includes('clutch')) {
                                 const m = d.reason.match(/1v(\d+)/);
                                 const suffix = m ? `1v${m[1]} ` : '';
-                                reasonStr = ` - <span class="event-clutch">${suffix}CLUTCH</span>`;
+                                reasonStr = ` - <span class="event-clutch">${suffix}CLUTCH (+${(d.clutch_bonus_points || 0).toFixed(1)} pts)</span>`;
                             } else if (d.reason && d.reason.includes('eco damage')) {
                                 reasonStr = ` - <span class="event-eco">ECO DAMAGE</span>`;
                             }
@@ -726,7 +773,7 @@ function renderMatches(matches, targetPuuid) {
                             eventItems += `
                                 <div class="round-event-item">
                                     <div class="round-event-bullet"></div>
-                                    <div class="round-event-desc">Killed <span class="event-highlight">${victimName}</span>${reasonStr}</div>
+                                    <div class="round-event-desc">Killed <span class="event-highlight">${victimName}</span> <span class="event-pts">(+${d.kill_points.toFixed(1)} pts)</span>${reasonStr}</div>
                                 </div>
                             `;
                         });
@@ -736,7 +783,7 @@ function renderMatches(matches, targetPuuid) {
                         eventItems += `
                             <div class="round-event-item dmg">
                                 <div class="round-event-bullet"></div>
-                                <div class="round-event-desc">Assist damage <span style="color:var(--text-muted); font-size:10px;">+${sr.damage_score.toFixed(1)} pts</span></div>
+                                <div class="round-event-desc">Assist damage <span class="event-pts">(+${sr.damage_score.toFixed(1)} pts)</span></div>
                             </div>
                         `;
                     }
@@ -767,11 +814,33 @@ function renderMatches(matches, targetPuuid) {
                 });
             }
 
+            let mathKills = 0;
+            let mathClutches = 0;
+            let mathFB = 0;
+            let mathFD = 0;
+            let mathDmg = 0;
+            let mathTotal = 0;
+            
+            if (match.performance && match.performance.round_scores) {
+                match.performance.round_scores.forEach(sr => {
+                    mathKills += sr.kills_score || 0;
+                    mathClutches += sr.clutch_bonus || 0;
+                    mathFB += sr.first_blood_bonus || 0;
+                    mathFD += sr.first_death_penalty || 0;
+                    mathDmg += sr.damage_score || 0;
+                });
+            }
+            mathTotal = mathKills + mathClutches + mathFB - mathFD + mathDmg;
+            const mathRounds = match.performance.total_rounds || 1;
+            const mathAvg = match.performance.average_round_score || (mathTotal / mathRounds);
+            const mathCurved = match.performance.final_score;
+
             details.innerHTML = `
                 <div class="match-details-inner">
                     <div class="match-tabs">
                         <button class="tab-btn active" data-target="scoreboard-${match.match_id}">Scoreboard</button>
                         <button class="tab-btn" data-target="rounds-${match.match_id}">Rounds</button>
+                        <button class="tab-btn" data-target="math-${match.match_id}">Score Math</button>
                     </div>
                     
                     <div class="tab-content" id="scoreboard-${match.match_id}">
@@ -783,6 +852,100 @@ function renderMatches(matches, targetPuuid) {
                         <p class="scoreboard-label">Round-by-Round Breakdown</p>
                         <div class="rounds-timeline">
                             ${roundsHtml}
+                        </div>
+                    </div>
+
+                    <div class="tab-content hidden" id="math-${match.match_id}">
+                        <p class="scoreboard-label">Score Calculation Breakdown</p>
+                        <div class="math-container">
+                            <div class="math-breakdown-card">
+                                <div class="math-row">
+                                    <span class="math-label">
+                                        Kills (Base)
+                                        <span class="tooltip-trigger" data-tooltip="Points gained from round kills (excluding clutch multipliers). Weighted by enemy ACS and eco-damage modifiers.">
+                                            <i class="info-icon">i</i>
+                                        </span>
+                                    </span>
+                                    <span class="math-value positive">+${mathKills.toFixed(1)} pts</span>
+                                </div>
+                                <div class="math-row">
+                                    <span class="math-label">
+                                        Clutch Bonus
+                                        <span class="tooltip-trigger" data-tooltip="Extra bonus points (+0.5x multiplier) gained for securing kills in clutch 1vN round-won scenarios.">
+                                            <i class="info-icon">i</i>
+                                        </span>
+                                    </span>
+                                    <span class="math-value positive">+${mathClutches.toFixed(1)} pts</span>
+                                </div>
+                                <div class="math-row">
+                                    <span class="math-label">
+                                        First Bloods
+                                        <span class="tooltip-trigger" data-tooltip="Bonus points gained for securing the first kill of a round (+25.0 pts per occurrence).">
+                                            <i class="info-icon">i</i>
+                                        </span>
+                                    </span>
+                                    <span class="math-value positive">+${mathFB.toFixed(1)} pts</span>
+                                </div>
+                                <div class="math-row">
+                                    <span class="math-label">
+                                        First Deaths
+                                        <span class="tooltip-trigger" data-tooltip="Penalties deducted for being the first to die in a round (-35.0 pts per occurrence).">
+                                            <i class="info-icon">i</i>
+                                        </span>
+                                    </span>
+                                    <span class="math-value negative">-${mathFD.toFixed(1)} pts</span>
+                                </div>
+                                <div class="math-row">
+                                    <span class="math-label">
+                                        Assist Damage
+                                        <span class="tooltip-trigger" data-tooltip="Points gained from damage dealt to enemies you did not kill. Discounted in hopeless round-lost scenarios.">
+                                            <i class="info-icon">i</i>
+                                        </span>
+                                    </span>
+                                    <span class="math-value positive">+${mathDmg.toFixed(1)} pts</span>
+                                </div>
+                                
+                                <div class="math-row divider"></div>
+                                
+                                <div class="math-row total">
+                                    <span class="math-label">
+                                        Raw Match Total
+                                        <span class="tooltip-trigger" data-tooltip="Total raw score accumulated over all rounds of the match.">
+                                            <i class="info-icon">i</i>
+                                        </span>
+                                    </span>
+                                    <span class="math-value">${mathTotal.toFixed(1)} pts</span>
+                                </div>
+                                <div class="math-row formula">
+                                    <span class="math-label">
+                                        Avg Round Score
+                                        <span class="tooltip-trigger" data-tooltip="Raw match total divided by the total number of rounds played (${mathRounds}).">
+                                            <i class="info-icon">i</i>
+                                        </span>
+                                    </span>
+                                    <span class="math-value">${mathAvg.toFixed(2)} pts</span>
+                                </div>
+                                <div class="math-row final">
+                                    <span class="math-label">
+                                        Performance Score
+                                        <span class="tooltip-trigger" data-tooltip="Scaled against the 45.0 perfect-round benchmark and curved: (Avg Round Score / 45.0) ^ 0.98 * 1000.">
+                                            <i class="info-icon">i</i>
+                                        </span>
+                                    </span>
+                                    <span class="math-value highlight">${mathCurved} / 1000</span>
+                                </div>
+                            </div>
+                            <div class="math-explanation-card">
+                                <h4 class="formula-title">Scoring Formula</h4>
+                                <div class="formula-math">
+                                    <span class="formula-block">Avg Round Score = Raw Total / Rounds</span>
+                                    <span class="formula-block">Performance Score = (Avg / 45.0)<sup>0.98</sup> × 1000</span>
+                                </div>
+                                <div class="formula-notes">
+                                    <p>Your performance is evaluated round-by-round and scaled against a combat benchmark of 45.0 points per round.</p>
+                                    <p>An exponent curve of 0.98 is applied to map raw performance ratio into a premium 0-1000 score index.</p>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>
