@@ -35,11 +35,13 @@ class RoundContext:
     player_economies: list[PlayerRoundEconomy]
     first_blood_puuid: str | None = None
     first_death_puuid: str | None = None
+    raw_player_stats: list[dict[str, Any]] = field(default_factory=list)
 
 @dataclass
 class ScoredRound:
     round_num: int
     kills_score: float
+    damage_score: float
     first_blood_bonus: float
     first_death_penalty: float
     round_score: float
@@ -51,9 +53,14 @@ FIRST_DEATH_PENALTY: int = 35
 CLUTCH_MULTIPLIER: float = 1.5
 FULL_BUY_THRESHOLD: int = 3500
 
+# Damage scoring
+DAMAGE_WEIGHT: float = 0.15          # Damage contributes ~15% of the round score
+DAMAGE_PER_POINT: float = 8.0        # 8 useful-damage HP = 1 point of raw damage score
+DAMAGE_LOST_HOPELESS_MULT: float = 0.25  # Discount for damage in hopeless lost situations
+
 # Tweak these two numbers to balance your final 0-1000 score!
-PERFECT_ROUND_BENCHMARK: float = 55.0  
-CURVE_FACTOR: float = 0.65  
+PERFECT_ROUND_BENCHMARK: float = 45.0  
+CURVE_FACTOR: float = 0.98  
 
 # ─── THE SCORING ENGINE ───
 class ValorantPerformanceEngine:
@@ -136,7 +143,8 @@ class ValorantPerformanceEngine:
             
         return RoundContext(round_num=round_num, winning_team=winning_team, target_team=self.target_team,
                             kill_events=kill_events, player_economies=economies,
-                            first_blood_puuid=fb_puuid, first_death_puuid=fd_puuid)
+                            first_blood_puuid=fb_puuid, first_death_puuid=fd_puuid,
+                            raw_player_stats=raw_stats)
 
     def _find_clutch_kills(self, ctx: RoundContext) -> dict[str, int]:
         alive: set[str] = {e.puuid for e in ctx.player_economies}
@@ -207,11 +215,92 @@ class ValorantPerformanceEngine:
                             
         fb_bonus = FIRST_BLOOD_BONUS if is_fb else 0
         fd_penalty = FIRST_DEATH_PENALTY if is_fd else 0
-        round_score = kills_score + fb_bonus - fd_penalty
+        
+        # ── Damage score ──────────────────────────────────────────────────────
+        damage_score = self._calculate_damage_score(ctx, raw_index)
+        
+        combat_score = kills_score + damage_score
+        round_score = combat_score + fb_bonus - fd_penalty
         
         return ScoredRound(round_num=ctx.round_num, kills_score=round(kills_score, 2),
+                           damage_score=round(damage_score, 2),
                            first_blood_bonus=float(fb_bonus), first_death_penalty=float(fd_penalty),
                            round_score=round(round_score, 2), details=details, winning_team=ctx.winning_team)
+
+    def _calculate_damage_score(self, ctx: RoundContext, raw_index: int) -> float:
+        """Score non-kill damage: the 'assist damage' that softened enemies.
+        
+        Logic:
+        - Take all damage_events from the target player this round
+        - Subtract damage dealt to enemies the player also killed (already scored)
+        - The remaining damage is 'useful assist damage' — it created HP advantages
+        - Discount damage in lost rounds where the player was in a hopeless 1vN
+        """
+        is_round_lost = ctx.winning_team != ctx.target_team
+        
+        # Find the target player's stats for this round
+        target_stats = None
+        for ps in ctx.raw_player_stats:
+            puuid = ps.get("player_puuid") or ps.get("puuid")
+            if puuid == self.target_puuid:
+                target_stats = ps
+                break
+        
+        if not target_stats:
+            return 0.0
+        
+        damage_events = target_stats.get("damage_events", [])
+        if not damage_events:
+            return 0.0
+        
+        # Identify enemies the player killed this round
+        killed_enemies: set[str] = set()
+        for ke in ctx.kill_events:
+            if ke.killer_puuid == self.target_puuid and ke.victim_puuid:
+                killed_enemies.add(ke.victim_puuid)
+        
+        # Sum damage to enemies NOT killed by this player (= assist/softening damage)
+        useful_damage: float = 0.0
+        for de in damage_events:
+            receiver = de.get("receiver_puuid")
+            dmg = de.get("damage", 0)
+            if not receiver:
+                continue
+            # Skip damage to enemies we killed — those kills are already scored
+            if receiver in killed_enemies:
+                continue
+            useful_damage += dmg
+        
+        if useful_damage <= 0:
+            return 0.0
+        
+        # Base damage points
+        raw_damage_pts = useful_damage / DAMAGE_PER_POINT
+        
+        # Context multiplier
+        if is_round_lost:
+            # Check if player was in a hopeless situation (1v2+, dead teammates)
+            # Count how many teammates were alive at the end (approximation)
+            teammates_killed = 0
+            for ke in ctx.kill_events:
+                victim = ke.victim_puuid
+                if victim and victim != self.target_puuid:
+                    if self.team_lookup.get(victim) == ctx.target_team:
+                        teammates_killed += 1
+            
+            team_size = sum(1 for p in ctx.player_economies 
+                          if self.team_lookup.get(p.puuid) == ctx.target_team)
+            alive_at_end = max(0, team_size - teammates_killed)
+            
+            if alive_at_end <= 1 and teammates_killed >= 3:
+                # Hopeless 1vN scenario — likely exit damage, heavily discount
+                raw_damage_pts *= DAMAGE_LOST_HOPELESS_MULT
+            else:
+                # Lost round but damage was still relevant (trade potential, etc.)
+                raw_damage_pts *= 0.7
+        
+        # Apply the weight so damage stays a small part of total score
+        return raw_damage_pts * DAMAGE_WEIGHT
 
     def calculate(self) -> dict[str, Any]:
         scored_rounds: list[ScoredRound] = []
@@ -230,6 +319,7 @@ class ValorantPerformanceEngine:
             serialized_rounds.append({
                 "round_num": sr.round_num,
                 "kills_score": sr.kills_score,
+                "damage_score": sr.damage_score,
                 "first_blood_bonus": sr.first_blood_bonus,
                 "first_death_penalty": sr.first_death_penalty,
                 "round_score": sr.round_score,

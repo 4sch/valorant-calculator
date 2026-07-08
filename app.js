@@ -732,6 +732,15 @@ function renderMatches(matches, targetPuuid) {
                         });
                     }
                     
+                    if (sr.damage_score && sr.damage_score > 0) {
+                        eventItems += `
+                            <div class="round-event-item dmg">
+                                <div class="round-event-bullet"></div>
+                                <div class="round-event-desc">Assist damage <span style="color:var(--text-muted); font-size:10px;">+${sr.damage_score.toFixed(1)} pts</span></div>
+                            </div>
+                        `;
+                    }
+                    
                     if (!eventItems) {
                         eventItems = `
                             <div class="round-event-item">

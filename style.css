@@ -1201,6 +1201,13 @@ input:focus {
     font-weight: 600;
 }
 
+.round-event-item.dmg {
+    color: #8b9dc3;
+    font-weight: 500;
+    font-size: 11px;
+    opacity: 0.85;
+}
+
 .round-event-bullet {
     width: 4px;
     height: 4px;
