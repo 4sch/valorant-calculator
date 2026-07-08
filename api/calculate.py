@@ -6,6 +6,7 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 import urllib.parse
 from concurrent.futures import ThreadPoolExecutor
+import time
 
 app = Flask(__name__, static_folder='../', static_url_path='')
 CORS(app)
@@ -347,14 +348,73 @@ class ValorantPerformanceEngine:
         return {"target_puuid": self.target_puuid, "total_rounds": r, "round_scores": serialized_rounds,
                 "average_round_score": round(avg_round_score, 4), "final_score": final_score}
 
-# ─── WEB API ROUTE ───
-ACCOUNT_CACHE = {
-    ("nocap on god bro", "deeep"): {
-        "region": "eu",
-        "puuid": "3f123e34-b8cf-57bf-a4d7-e9349dde21c2"
-    }
-}
+# ─── PERSISTENT CACHING SYSTEM ───
+import json
+import tempfile
+
+# Dynamically gets the OS-specific temporary writable directory (e.g. /tmp on Vercel/Linux, AppData/Temp on Windows)
+temp_base = tempfile.gettempdir()
+CACHE_DIR = os.path.join(temp_base, 'valorant_match_cache')
+ACCOUNT_CACHE_FILE = os.path.join(temp_base, 'valorant_account_cache.json')
+
+os.makedirs(CACHE_DIR, exist_ok=True)
+ACCOUNT_CACHE = {}
 MATCH_CACHE = {}
+
+def load_account_cache():
+    global ACCOUNT_CACHE
+    ACCOUNT_CACHE = {
+        ("nocap on god bro", "deeep"): {
+            "region": "eu",
+            "puuid": "3f123e34-b8cf-57bf-a4d7-e9349dde21c2"
+        }
+    }
+    if os.path.exists(ACCOUNT_CACHE_FILE):
+        try:
+            with open(ACCOUNT_CACHE_FILE, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+                for k, v in data.items():
+                    if '#' in k:
+                        parts = k.split('#', 1)
+                        ACCOUNT_CACHE[(parts[0].lower(), parts[1].lower())] = v
+        except Exception:
+            pass
+
+def save_account_cache():
+    try:
+        data = {}
+        for (username, tag), v in ACCOUNT_CACHE.items():
+            data[f"{username}#{tag}"] = v
+        with open(ACCOUNT_CACHE_FILE, 'w', encoding='utf-8') as f:
+            json.dump(data, f, ensure_ascii=False)
+    except Exception:
+        pass
+
+def get_cached_match(match_id):
+    if match_id in MATCH_CACHE:
+        return MATCH_CACHE[match_id]
+    filepath = os.path.join(CACHE_DIR, f"{match_id}.json")
+    if os.path.exists(filepath):
+        try:
+            with open(filepath, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+                MATCH_CACHE[match_id] = data
+                return data
+        except Exception:
+            pass
+    return None
+
+def save_match_to_cache(match_id, data):
+    MATCH_CACHE[match_id] = data
+    filepath = os.path.join(CACHE_DIR, f"{match_id}.json")
+    try:
+        with open(filepath, 'w', encoding='utf-8') as f:
+            json.dump(data, f, ensure_ascii=False)
+    except Exception:
+        pass
+
+load_account_cache()
+save_account_cache()
 
 @app.route('/api/calculate', methods=['POST'])
 def handle_calculation():
@@ -395,6 +455,7 @@ def handle_calculation():
                 return jsonify({"error": "Invalid account data received"}), 500
                 
             ACCOUNT_CACHE[cache_key] = {"region": region, "puuid": target_puuid}
+            save_account_cache()
             
         # 2. Fetch Lifetime matches (paginated)
         encoded_name = urllib.parse.quote(username)
@@ -412,18 +473,22 @@ def handle_calculation():
         from concurrent.futures import ThreadPoolExecutor
         
         def fetch_match_details(match_id):
-            if match_id in MATCH_CACHE:
-                return MATCH_CACHE[match_id]
-            try:
-                url = f"https://api.henrikdev.xyz/valorant/v2/match/{match_id}"
-                res = requests.get(url, headers=headers, timeout=12)
-                if res.status_code == 200:
-                    data = res.json().get("data", {})
-                    if data:
-                        MATCH_CACHE[match_id] = data
-                    return data
-            except Exception:
-                pass
+            cached = get_cached_match(match_id)
+            if cached:
+                return cached
+            for attempt in range(3):
+                try:
+                    url = f"https://api.henrikdev.xyz/valorant/v2/match/{match_id}"
+                    res = requests.get(url, headers=headers, timeout=12)
+                    if res.status_code == 200:
+                        data = res.json().get("data", {})
+                        if data:
+                            save_match_to_cache(match_id, data)
+                        return data
+                    elif res.status_code == 429:
+                        time.sleep(1.0 * (attempt + 1))
+                except Exception:
+                    time.sleep(0.5)
             return None
 
         with ThreadPoolExecutor(max_workers=5) as executor:
@@ -529,11 +594,12 @@ def handle_performance():
                 return jsonify({"error": "Invalid account data received"}), 500
                 
             ACCOUNT_CACHE[cache_key] = {"region": region, "puuid": target_puuid}
+            save_account_cache()
             
-        # 2. Fetch Lifetime matches (last 20)
+        # 2. Fetch Lifetime matches (last 10)
         encoded_name = urllib.parse.quote(username)
         encoded_tag = urllib.parse.quote(tag)
-        lifetime_url = f"https://api.henrikdev.xyz/valorant/v1/lifetime/matches/{region}/{encoded_name}/{encoded_tag}?size=20&page=1&mode=competitive"
+        lifetime_url = f"https://api.henrikdev.xyz/valorant/v1/lifetime/matches/{region}/{encoded_name}/{encoded_tag}?size=10&page=1&mode=competitive"
         lifetime_res = requests.get(lifetime_url, headers=headers, timeout=15)
         
         if lifetime_res.status_code != 200:
@@ -544,18 +610,22 @@ def handle_performance():
         
         # 3. Fetch full match details in parallel
         def fetch_match_details(match_id):
-            if match_id in MATCH_CACHE:
-                return MATCH_CACHE[match_id]
-            try:
-                url = f"https://api.henrikdev.xyz/valorant/v2/match/{match_id}"
-                res = requests.get(url, headers=headers, timeout=12)
-                if res.status_code == 200:
-                    data = res.json().get("data", {})
-                    if data:
-                        MATCH_CACHE[match_id] = data
-                    return data
-            except Exception:
-                pass
+            cached = get_cached_match(match_id)
+            if cached:
+                return cached
+            for attempt in range(3):
+                try:
+                    url = f"https://api.henrikdev.xyz/valorant/v2/match/{match_id}"
+                    res = requests.get(url, headers=headers, timeout=12)
+                    if res.status_code == 200:
+                        data = res.json().get("data", {})
+                        if data:
+                            save_match_to_cache(match_id, data)
+                        return data
+                    elif res.status_code == 429:
+                        time.sleep(1.0 * (attempt + 1))
+                except Exception:
+                    time.sleep(0.5)
             return None
 
         with ThreadPoolExecutor(max_workers=5) as executor:
@@ -598,6 +668,8 @@ def handle_performance():
                 target_player_data = next((p for p in all_players if p.get("puuid") == target_puuid), None)
                 
                 agent = "Unknown"
+                is_win = False
+                
                 if target_player_data:
                     agent = target_player_data.get("character", "Unknown")
                     stats = target_player_data.get("stats") or {}
@@ -614,7 +686,6 @@ def handle_performance():
                     total_assists += assists
                     
                     # Check if win
-                    is_win = False
                     team = target_player_data.get("team")
                     if team:
                         is_win = match_data.get("teams", {}).get(team.lower(), {}).get("has_won", False)
@@ -647,7 +718,7 @@ def handle_performance():
                 map_stats[map_name]["matches"] += 1
                 
                 # If target_player_data was missing, we won't know if it's a win, but usually we skip the match above if missing
-                if 'is_win' in locals() and is_win:
+                if target_player_data and is_win:
                     map_stats[map_name]["wins"] += 1
                     
                 map_stats[map_name]["total_score"] += final_score
