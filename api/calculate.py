@@ -349,13 +349,124 @@ class ValorantPerformanceEngine:
                 "average_round_score": round(avg_round_score, 4), "final_score": final_score}
 
 # ─── IN-MEMORY CACHING SYSTEM ───
-ACCOUNT_CACHE = {
-    ("nocap on god bro", "deeep"): {
-        "region": "eu",
-        "puuid": "3f123e34-b8cf-57bf-a4d7-e9349dde21c2"
+ACCOUNT_CACHE: dict[tuple[str, str], dict[str, Any]] = {}
+MATCH_CACHE: dict[str, dict[str, Any]] = {}
+
+
+def _api_headers() -> dict[str, str]:
+    key = os.environ.get("VALORANT_API_KEY", "") or os.environ.get("HDEV_API_KEY", "")
+    return {"Authorization": key} if key else {}
+
+
+def _friendly_status_error(status: int, context: str) -> tuple[dict[str, str], int]:
+    if status == 404:
+        return {"error": f"{context}: account or data not found. Check the Riot ID."}, 404
+    if status == 429:
+        return {"error": f"{context}: rate limited by the API. Wait a moment and try again."}, 429
+    if status in (401, 403):
+        return {"error": f"{context}: API authorization failed. Check the server API key."}, 502
+    return {"error": f"{context} failed (status {status})."}, 502
+
+
+def _extract_account_payload(acc_data: dict[str, Any], username: str, tag: str) -> dict[str, Any]:
+    card = acc_data.get("card") or {}
+    return {
+        "name": acc_data.get("name") or username,
+        "tag": acc_data.get("tag") or tag,
+        "puuid": acc_data.get("puuid"),
+        "region": acc_data.get("region"),
+        "account_level": acc_data.get("account_level"),
+        "card_small": card.get("small") or card.get("wide") or card.get("large"),
+        "card_large": card.get("large") or card.get("wide") or card.get("small"),
     }
-}
-MATCH_CACHE = {}
+
+
+def resolve_account(username: str, tag: str) -> tuple[dict[str, Any] | None, tuple[dict, int] | None]:
+    """Return (account_info, None) or (None, (error_json, status))."""
+    cache_key = (username.lower(), tag.lower())
+    if cache_key in ACCOUNT_CACHE:
+        return ACCOUNT_CACHE[cache_key], None
+
+    headers = _api_headers()
+    encoded_name = urllib.parse.quote(username)
+    encoded_tag = urllib.parse.quote(tag)
+    acc_url = f"https://api.henrikdev.xyz/valorant/v1/account/{encoded_name}/{encoded_tag}"
+    try:
+        acc_res = requests.get(acc_url, headers=headers, timeout=12)
+    except requests.RequestException as exc:
+        return None, ({"error": f"Could not reach account API: {exc}"}, 502)
+
+    if acc_res.status_code != 200:
+        return None, _friendly_status_error(acc_res.status_code, "Account lookup")
+
+    acc_data = acc_res.json().get("data", {}) or {}
+    region = acc_data.get("region")
+    target_puuid = acc_data.get("puuid")
+    if not region or not target_puuid:
+        return None, ({"error": "Invalid account data received from API."}, 500)
+
+    account = _extract_account_payload(acc_data, username, tag)
+    ACCOUNT_CACHE[cache_key] = account
+    return account, None
+
+
+def fetch_match_details(match_id: str, headers: dict[str, str]) -> dict[str, Any] | None:
+    if match_id in MATCH_CACHE:
+        return MATCH_CACHE[match_id]
+    for attempt in range(3):
+        try:
+            url = f"https://api.henrikdev.xyz/valorant/v2/match/{match_id}"
+            res = requests.get(url, headers=headers, timeout=12)
+            if res.status_code == 200:
+                data = res.json().get("data", {})
+                if data:
+                    MATCH_CACHE[match_id] = data
+                return data
+            if res.status_code == 429:
+                time.sleep(1.0 * (attempt + 1))
+        except Exception:
+            time.sleep(0.5)
+    return None
+
+
+def _match_outcome(match_data: dict[str, Any], target_puuid: str) -> tuple[bool | None, int, int]:
+    """Return (has_won, rounds_won, rounds_lost) for the target player."""
+    players = (match_data.get("players") or {}).get("all_players") or []
+    target = next((p for p in players if p.get("puuid") == target_puuid), None)
+    if not target:
+        return None, 0, 0
+    team = (target.get("team") or "").lower()
+    teams = match_data.get("teams") or {}
+    team_info = teams.get(team) or {}
+    has_won = team_info.get("has_won")
+    rounds_won = int(team_info.get("rounds_won") or 0)
+    rounds_lost = int(team_info.get("rounds_lost") or 0)
+    if has_won is None and rounds_won + rounds_lost > 0:
+        has_won = rounds_won > rounds_lost
+    return has_won, rounds_won, rounds_lost
+
+
+def _player_headshot_pct(stats: dict[str, Any]) -> float | None:
+    hs = stats.get("headshots")
+    bs = stats.get("bodyshots")
+    ls = stats.get("legshots")
+    if hs is None:
+        return None
+    total = (hs or 0) + (bs or 0) + (ls or 0)
+    if total <= 0:
+        return None
+    return (hs or 0) / total * 100.0
+
+
+def _player_adr(stats: dict[str, Any], rounds: int) -> float | None:
+    dmg = stats.get("damage")
+    if dmg is None:
+        # Some payloads nest damage under damage_made
+        dmg = stats.get("damage_made")
+    if dmg is None or rounds <= 0:
+        return None
+    return float(dmg) / rounds
+
 
 @app.route('/api/calculate', methods=['POST'])
 def handle_calculation():
@@ -371,90 +482,57 @@ def handle_calculation():
             page = 1
         if not username or not tag:
             return jsonify({"error": "Missing username or tag parameter"}), 400
-            
-        headers = {"Authorization": os.environ.get("VALORANT_API_KEY", "")}
-        
-        # 1. Fetch account or read from cache
-        cache_key = (username.lower(), tag.lower())
-        if cache_key in ACCOUNT_CACHE:
-            region = ACCOUNT_CACHE[cache_key]["region"]
-            target_puuid = ACCOUNT_CACHE[cache_key]["puuid"]
-        else:
-            encoded_name = urllib.parse.quote(username)
-            encoded_tag = urllib.parse.quote(tag)
-            acc_url = f"https://api.henrikdev.xyz/valorant/v1/account/{encoded_name}/{encoded_tag}"
-            acc_res = requests.get(acc_url, headers=headers, timeout=12)
-            
-            if acc_res.status_code != 200:
-                return jsonify({"error": f"Failed to fetch account (Status {acc_res.status_code})"}), 502
-                
-            acc_data = acc_res.json().get("data", {})
-            region = acc_data.get("region")
-            target_puuid = acc_data.get("puuid")
-            
-            if not region or not target_puuid:
-                return jsonify({"error": "Invalid account data received"}), 500
-                
-            ACCOUNT_CACHE[cache_key] = {"region": region, "puuid": target_puuid}
-            
-        # 2. Fetch Lifetime matches (paginated)
+
+        account, err = resolve_account(username, tag)
+        if err:
+            return jsonify(err[0]), err[1]
+
+        region = account["region"]
+        target_puuid = account["puuid"]
+        headers = _api_headers()
+
         encoded_name = urllib.parse.quote(username)
         encoded_tag = urllib.parse.quote(tag)
-        lifetime_url = f"https://api.henrikdev.xyz/valorant/v1/lifetime/matches/{region}/{encoded_name}/{encoded_tag}?size=5&page={page}&mode=competitive"
-        lifetime_res = requests.get(lifetime_url, headers=headers, timeout=15)
-        
+        lifetime_url = (
+            f"https://api.henrikdev.xyz/valorant/v1/lifetime/matches/"
+            f"{region}/{encoded_name}/{encoded_tag}?size=5&page={page}&mode=competitive"
+        )
+        try:
+            lifetime_res = requests.get(lifetime_url, headers=headers, timeout=15)
+        except requests.RequestException as exc:
+            return jsonify({"error": f"Could not reach match history API: {exc}"}), 502
+
         if lifetime_res.status_code != 200:
-            return jsonify({"error": f"Failed to fetch lifetime match history (Status {lifetime_res.status_code})"}), 502
-            
-        lifetime_payload = lifetime_res.json().get("data", [])
+            body, code = _friendly_status_error(lifetime_res.status_code, "Match history")
+            return jsonify(body), code
+
+        lifetime_payload = lifetime_res.json().get("data", []) or []
         match_ids = [m.get("meta", {}).get("id") for m in lifetime_payload if m.get("meta", {}).get("id")]
-        
-        # 3. Fetch full match details in parallel
-        from concurrent.futures import ThreadPoolExecutor
-        
-        def fetch_match_details(match_id):
-            if match_id in MATCH_CACHE:
-                return MATCH_CACHE[match_id]
-            for attempt in range(3):
-                try:
-                    url = f"https://api.henrikdev.xyz/valorant/v2/match/{match_id}"
-                    res = requests.get(url, headers=headers, timeout=12)
-                    if res.status_code == 200:
-                        data = res.json().get("data", {})
-                        if data:
-                            MATCH_CACHE[match_id] = data
-                        return data
-                    elif res.status_code == 429:
-                        time.sleep(1.0 * (attempt + 1))
-                except Exception:
-                    time.sleep(0.5)
-            return None
 
         with ThreadPoolExecutor(max_workers=5) as executor:
-            matches_payload = list(executor.map(fetch_match_details, match_ids))
-            
+            matches_payload = list(executor.map(lambda mid: fetch_match_details(mid, headers), match_ids))
+
         matches_payload = [m for m in matches_payload if m]
-        
-        # 4. Process matches
+
         results = []
         for match_data in matches_payload:
             metadata = match_data.get("metadata") or {}
             match_id = metadata.get("matchid")
             map_name = metadata.get("map")
             mode = metadata.get("mode")
-            
+
             players_dict = match_data.get("players") or {}
             all_players = players_dict.get("all_players") or []
-            
+
             target_player_data = next((p for p in all_players if p.get("puuid") == target_puuid), None)
             if not target_player_data:
                 continue
-                
-            # Scoreboard for all players
+
             scoreboard = []
             for p in all_players:
                 p_puuid = p.get("puuid")
-                if not p_puuid: continue
+                if not p_puuid:
+                    continue
                 try:
                     engine = ValorantPerformanceEngine(match_data, p_puuid)
                     p_result = engine.calculate()
@@ -466,38 +544,47 @@ def handle_calculation():
                         "agent": p.get("character"),
                         "stats": p.get("stats", {}),
                         "final_score": p_result["final_score"],
-                        "average_round_score": p_result["average_round_score"]
+                        "average_round_score": p_result["average_round_score"],
                     })
                 except Exception:
                     pass
-                    
+
             scoreboard.sort(key=lambda x: x["final_score"], reverse=True)
-            
-            # Target player performance
+
             engine_target = ValorantPerformanceEngine(match_data, target_puuid)
             target_result = engine_target.calculate()
-            
+            has_won, rounds_won, rounds_lost = _match_outcome(match_data, target_puuid)
+
             results.append({
                 "match_id": match_id,
                 "map": map_name,
                 "mode": mode,
                 "game_start": metadata.get("game_start"),
                 "game_start_patched": metadata.get("game_start_patched"),
+                "has_won": has_won,
+                "rounds_won": rounds_won,
+                "rounds_lost": rounds_lost,
                 "target_player": {
                     "name": target_player_data.get("name"),
                     "tag": target_player_data.get("tag"),
                     "agent": target_player_data.get("character"),
                     "team": target_player_data.get("team"),
-                    "stats": target_player_data.get("stats", {})
+                    "stats": target_player_data.get("stats", {}),
                 },
                 "performance": target_result,
-                "scoreboard": scoreboard
+                "scoreboard": scoreboard,
             })
-            
-        return jsonify({"matches": results, "page": page, "target_puuid": target_puuid}), 200
-        
+
+        return jsonify({
+            "matches": results,
+            "page": page,
+            "target_puuid": target_puuid,
+            "account": account,
+        }), 200
+
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
 
 @app.route('/api/performance', methods=['POST'])
 def handle_performance():
@@ -505,72 +592,41 @@ def handle_performance():
         req_data = request.get_json() or {}
         username = req_data.get("username", "").strip()
         tag = req_data.get("tag", "").strip()
-        
+
         if not username or not tag:
             return jsonify({"error": "Missing username or tag parameter"}), 400
-            
-        headers = {"Authorization": os.environ.get("VALORANT_API_KEY", "")}
-        
-        # 1. Fetch account or read from cache
-        cache_key = (username.lower(), tag.lower())
-        if cache_key in ACCOUNT_CACHE:
-            region = ACCOUNT_CACHE[cache_key]["region"]
-            target_puuid = ACCOUNT_CACHE[cache_key]["puuid"]
-        else:
-            encoded_name = urllib.parse.quote(username)
-            encoded_tag = urllib.parse.quote(tag)
-            acc_url = f"https://api.henrikdev.xyz/valorant/v1/account/{encoded_name}/{encoded_tag}"
-            acc_res = requests.get(acc_url, headers=headers, timeout=12)
-            
-            if acc_res.status_code != 200:
-                return jsonify({"error": f"Failed to fetch account (Status {acc_res.status_code})"}), 502
-                
-            acc_data = acc_res.json().get("data", {})
-            region = acc_data.get("region")
-            target_puuid = acc_data.get("puuid")
-            
-            if not region or not target_puuid:
-                return jsonify({"error": "Invalid account data received"}), 500
-                
-            ACCOUNT_CACHE[cache_key] = {"region": region, "puuid": target_puuid}
-            
-        # 2. Fetch Lifetime matches (last 10)
+
+        account, err = resolve_account(username, tag)
+        if err:
+            return jsonify(err[0]), err[1]
+
+        region = account["region"]
+        target_puuid = account["puuid"]
+        headers = _api_headers()
+
         encoded_name = urllib.parse.quote(username)
         encoded_tag = urllib.parse.quote(tag)
-        lifetime_url = f"https://api.henrikdev.xyz/valorant/v1/lifetime/matches/{region}/{encoded_name}/{encoded_tag}?size=10&page=1&mode=competitive"
-        lifetime_res = requests.get(lifetime_url, headers=headers, timeout=15)
-        
+        lifetime_url = (
+            f"https://api.henrikdev.xyz/valorant/v1/lifetime/matches/"
+            f"{region}/{encoded_name}/{encoded_tag}?size=10&page=1&mode=competitive"
+        )
+        try:
+            lifetime_res = requests.get(lifetime_url, headers=headers, timeout=15)
+        except requests.RequestException as exc:
+            return jsonify({"error": f"Could not reach match history API: {exc}"}), 502
+
         if lifetime_res.status_code != 200:
-            return jsonify({"error": f"Failed to fetch lifetime match history (Status {lifetime_res.status_code})"}), 502
-            
-        lifetime_payload = lifetime_res.json().get("data", [])
+            body, code = _friendly_status_error(lifetime_res.status_code, "Match history")
+            return jsonify(body), code
+
+        lifetime_payload = lifetime_res.json().get("data", []) or []
         match_ids = [m.get("meta", {}).get("id") for m in lifetime_payload if m.get("meta", {}).get("id")]
-        
-        # 3. Fetch full match details in parallel
-        def fetch_match_details(match_id):
-            if match_id in MATCH_CACHE:
-                return MATCH_CACHE[match_id]
-            for attempt in range(3):
-                try:
-                    url = f"https://api.henrikdev.xyz/valorant/v2/match/{match_id}"
-                    res = requests.get(url, headers=headers, timeout=12)
-                    if res.status_code == 200:
-                        data = res.json().get("data", {})
-                        if data:
-                            MATCH_CACHE[match_id] = data
-                        return data
-                    elif res.status_code == 429:
-                        time.sleep(1.0 * (attempt + 1))
-                except Exception:
-                    time.sleep(0.5)
-            return None
 
         with ThreadPoolExecutor(max_workers=5) as executor:
-            matches_payload = list(executor.map(fetch_match_details, match_ids))
-            
+            matches_payload = list(executor.map(lambda mid: fetch_match_details(mid, headers), match_ids))
+
         valid_matches = [m for m in matches_payload if m]
-        
-        # 4. Aggregate performance
+
         total_score = 0
         total_acs = 0
         total_kills = 0
@@ -579,57 +635,70 @@ def handle_performance():
         total_clutches = 0
         total_first_bloods = 0
         total_first_deaths = 0
-        
+        total_wins = 0
+        hs_samples: list[float] = []
+        adr_samples: list[float] = []
+
         analyzed = 0
-        
         history = []
-        agent_stats = {}
-        map_stats = {}
-        
+        form_chrono: list[tuple[int, str]] = []
+        agent_stats: dict[str, dict[str, Any]] = {}
+        map_stats: dict[str, dict[str, Any]] = {}
+
         for match_data in valid_matches:
             try:
                 engine = ValorantPerformanceEngine(match_data, target_puuid)
                 result = engine.calculate()
-                
+
                 final_score = result["final_score"]
                 total_score += final_score
-                
+
                 metadata = match_data.get("metadata", {})
                 match_id = metadata.get("matchid")
-                map_name = metadata.get("map")
-                game_start = metadata.get("game_start")
-                
-                # Extract stats for the target player
+                map_name = metadata.get("map") or "Unknown"
+                game_start = metadata.get("game_start") or 0
+
                 players_dict = match_data.get("players") or {}
                 all_players = players_dict.get("all_players") or []
                 target_player_data = next((p for p in all_players if p.get("puuid") == target_puuid), None)
-                
+
                 agent = "Unknown"
                 is_win = False
-                
+                acs = 0.0
+                kills = deaths = assists = 0
+
                 if target_player_data:
                     agent = target_player_data.get("character", "Unknown")
                     stats = target_player_data.get("stats") or {}
-                    
-                    rounds_played = engine.total_rounds
-                    acs = (stats.get("score") or 0) / rounds_played if rounds_played > 0 else 0
+
+                    rounds_played = engine.total_rounds or 1
+                    acs = (stats.get("score") or 0) / rounds_played
                     total_acs += acs
-                    
-                    kills = stats.get("kills", 0)
-                    deaths = stats.get("deaths", 0)
-                    assists = stats.get("assists", 0)
+
+                    kills = stats.get("kills", 0) or 0
+                    deaths = stats.get("deaths", 0) or 0
+                    assists = stats.get("assists", 0) or 0
                     total_kills += kills
                     total_deaths += deaths
                     total_assists += assists
-                    
-                    # Check if win
-                    team = target_player_data.get("team")
-                    if team:
-                        is_win = match_data.get("teams", {}).get(team.lower(), {}).get("has_won", False)
 
-                    # Agent stats aggregation
+                    has_won, _, _ = _match_outcome(match_data, target_puuid)
+                    is_win = bool(has_won)
+                    if is_win:
+                        total_wins += 1
+
+                    hs = _player_headshot_pct(stats)
+                    if hs is not None:
+                        hs_samples.append(hs)
+                    adr = _player_adr(stats, rounds_played)
+                    if adr is not None:
+                        adr_samples.append(adr)
+
                     if agent not in agent_stats:
-                        agent_stats[agent] = {"matches": 0, "wins": 0, "total_score": 0, "kills": 0, "deaths": 0, "assists": 0}
+                        agent_stats[agent] = {
+                            "matches": 0, "wins": 0, "total_score": 0,
+                            "kills": 0, "deaths": 0, "assists": 0,
+                        }
                     agent_stats[agent]["matches"] += 1
                     if is_win:
                         agent_stats[agent]["wins"] += 1
@@ -637,46 +706,41 @@ def handle_performance():
                     agent_stats[agent]["kills"] += kills
                     agent_stats[agent]["deaths"] += deaths
                     agent_stats[agent]["assists"] += assists
-                    
-                # Extract clutches, FB, FD from round_scores
+
                 for sr in result.get("round_scores", []):
-                    total_first_bloods += 1 if sr.get("first_blood_bonus") > 0 else 0
-                    total_first_deaths += 1 if sr.get("first_death_penalty") > 0 else 0
-                    
-                    # Count clutches by looking at details
+                    total_first_bloods += 1 if sr.get("first_blood_bonus", 0) > 0 else 0
+                    total_first_deaths += 1 if sr.get("first_death_penalty", 0) > 0 else 0
                     for d in sr.get("details", []):
-                        if d.get("reason", "").startswith("clutch"):
+                        if str(d.get("reason", "")).startswith("clutch"):
                             total_clutches += 1
-                            break # Count clutch once per round
-                
-                # Map stats aggregation
+                            break
+
                 if map_name not in map_stats:
                     map_stats[map_name] = {"matches": 0, "wins": 0, "total_score": 0}
                 map_stats[map_name]["matches"] += 1
-                
-                # If target_player_data was missing, we won't know if it's a win, but usually we skip the match above if missing
                 if target_player_data and is_win:
                     map_stats[map_name]["wins"] += 1
-                    
                 map_stats[map_name]["total_score"] += final_score
-                            
+
+                form_chrono.append((game_start, "W" if is_win else "L"))
+
                 history.append({
                     "match_id": match_id,
                     "map": map_name,
                     "agent": agent,
                     "score": final_score,
                     "acs": round(acs, 1) if target_player_data else 0,
-                    "date": game_start
+                    "date": game_start,
+                    "won": is_win if target_player_data else None,
                 })
-                
+
                 analyzed += 1
             except Exception:
                 pass
-                
+
         if analyzed == 0:
-            return jsonify({"error": "Could not analyze any matches"}), 404
-            
-        # Format agent and map stats
+            return jsonify({"error": "Could not analyze any competitive matches for this account."}), 404
+
         agent_performance = []
         for a, s in agent_stats.items():
             agent_performance.append({
@@ -686,41 +750,59 @@ def handle_performance():
                 "average_score": round(s["total_score"] / s["matches"]),
                 "kills": s["kills"],
                 "deaths": s["deaths"],
-                "assists": s["assists"]
+                "assists": s["assists"],
             })
         agent_performance.sort(key=lambda x: x["average_score"], reverse=True)
-        
+
         map_performance = []
         for m, s in map_stats.items():
             map_performance.append({
                 "map": m,
                 "matches": s["matches"],
                 "winrate": round((s["wins"] / s["matches"]) * 100) if s["matches"] > 0 else 0,
-                "average_score": round(s["total_score"] / s["matches"])
+                "average_score": round(s["total_score"] / s["matches"]),
             })
         map_performance.sort(key=lambda x: x["average_score"], reverse=True)
-        
-        # Sort history by date ascending for charts
+
         history.sort(key=lambda x: x["date"] if x["date"] else 0)
-            
+
+        # Form: most recent first
+        form_chrono.sort(key=lambda x: x[0], reverse=True)
+        form = [r for _, r in form_chrono]
+
+        kd_ratio = (total_kills / total_deaths) if total_deaths > 0 else float(total_kills)
+        winrate = round((total_wins / analyzed) * 100) if analyzed else 0
+        headshot_pct = round(sum(hs_samples) / len(hs_samples), 1) if hs_samples else None
+        average_adr = round(sum(adr_samples) / len(adr_samples), 1) if adr_samples else None
+
         return jsonify({
             "target_puuid": target_puuid,
+            "account": account,
             "matches_analyzed": analyzed,
             "average_score": round(total_score / analyzed),
             "average_acs": round(total_acs / analyzed, 1),
             "average_kills": round(total_kills / analyzed, 1),
             "average_deaths": round(total_deaths / analyzed, 1),
             "average_assists": round(total_assists / analyzed, 1),
+            "kd_ratio": round(kd_ratio, 2),
+            "winrate": winrate,
+            "wins": total_wins,
+            "losses": analyzed - total_wins,
+            "form": form,
+            "headshot_pct": headshot_pct,
+            "average_adr": average_adr,
             "total_clutches": total_clutches,
             "total_first_bloods": total_first_bloods,
             "total_first_deaths": total_first_deaths,
             "history": history,
             "agent_performance": agent_performance,
-            "map_performance": map_performance
+            "map_performance": map_performance,
         }), 200
-        
+
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+
 if __name__ == '__main__':
     app.run(debug=True, port=5000)
+

@@ -3,123 +3,233 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="description" content="Valorant Performance Engine — Custom curated match assessment scoring for competitive players.">
-    <title>VALORANT // Performance Engine</title>
+    <meta name="description" content="VALTRACK — Custom Valorant performance scoring. Round-by-round analysis, clutches, first bloods, and a 0–1000 performance index.">
+    <meta name="theme-color" content="#0a0c10">
+    <title>VALTRACK — Performance Engine</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;600;700&family=Orbitron:wght@600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
-    <div class="container">
+    <div class="bg-grid" aria-hidden="true"></div>
+    <div class="bg-glow" aria-hidden="true"></div>
 
-        <header>
-            <div class="header-brand">
-                <div class="logo">// PERF ENGINE</div>
-                <p class="subtitle">Custom Curated Match Assessment Engine</p>
-            </div>
-            <button class="theme-toggle" id="themeToggle" aria-label="Toggle theme">
-                <span class="toggle-icon-moon">🌙</span>
-                <div class="toggle-track">
-                    <div class="toggle-dot"></div>
+    <div class="app">
+        <header class="topbar">
+            <div class="brand" id="brandHome" title="Home">
+                <div class="brand-mark">VT</div>
+                <div class="brand-text">
+                    <span class="brand-name">VALTRACK</span>
+                    <span class="brand-tag">Performance Engine</span>
                 </div>
-                <span class="toggle-icon-sun">☀️</span>
-            </button>
+            </div>
+            <div class="topbar-actions">
+                <button class="icon-btn" id="helpBtn" type="button" aria-label="How scoring works" title="How scoring works">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                </button>
+                <button class="icon-btn theme-btn" id="themeToggle" type="button" aria-label="Toggle theme">
+                    <svg class="icon-moon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+                    <svg class="icon-sun" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
+                </button>
+            </div>
         </header>
 
         <main>
-            <section class="input-card">
-                <div class="input-row">
-                    <div class="input-group flex-3">
-                        <label for="username">Riot ID / Username</label>
-                        <input type="text" id="username" placeholder="e.g., TenZ" autocomplete="off" spellcheck="false">
-                    </div>
-                    <div class="input-group flex-1">
-                        <label for="tag">Tag</label>
-                        <input type="text" id="tag" placeholder="NA1" autocomplete="off" spellcheck="false">
-                    </div>
-                </div>
-                <button id="calcBtn"><span>Analyse Match Performance</span></button>
-            </section>
-
-            <section id="errorState" class="error-card hidden"></section>
-
-            <section id="performanceState" class="performance-card hidden">
-                <div class="perf-loading-overlay">
-                    <div class="perf-spinner"></div>
-                    <div class="perf-loading-text">Calculating performance analytics...</div>
-                </div>
-                <div class="perf-header">Recent Performance (Last 10 Matches)</div>
-                <div class="perf-body">
-                    <div class="perf-graphic">
-                        <svg class="circular-chart" viewBox="0 0 36 36">
-                            <path class="circle-bg"
-                                d="M18 2.0845
-                                a 15.9155 15.9155 0 0 1 0 31.831
-                                a 15.9155 15.9155 0 0 1 0 -31.831"
-                            />
-                            <path class="circle" id="perfCircle"
-                                stroke-dasharray="0, 100"
-                                d="M18 2.0845
-                                a 15.9155 15.9155 0 0 1 0 31.831
-                                a 15.9155 15.9155 0 0 1 0 -31.831"
-                            />
-                            <text x="18" y="20.35" class="percentage" id="perfScoreText">0</text>
-                            <text x="18" y="24" class="perf-label">AVG SCORE</text>
-                        </svg>
-                    </div>
-                    <div class="perf-stats">
-                        <div class="perf-stat-box">
-                            <span class="stat-val" id="perfAcs">0</span>
-                            <span class="stat-lbl">AVG ACS</span>
-                        </div>
-                        <div class="perf-stat-box">
-                            <span class="stat-val" id="perfKda">0/0/0</span>
-                            <span class="stat-lbl">AVG K/D/A</span>
-                        </div>
-                        <div class="perf-stat-box">
-                            <span class="stat-val" id="perfClutch">0</span>
-                            <span class="stat-lbl">CLUTCHES</span>
-                        </div>
-                        <div class="perf-stat-box">
-                            <span class="stat-val" id="perfFbfd">0 / 0</span>
-                            <span class="stat-lbl">FB / FD</span>
-                        </div>
-                    </div>
+            <!-- SEARCH -->
+            <section class="search-panel" id="searchPanel">
+                <div class="search-hero" id="searchHero">
+                    <p class="eyebrow">Competitive match analysis</p>
+                    <h1>Measure what ACS misses.</h1>
+                    <p class="hero-sub">Round-level scoring for clutches, first bloods, eco damage, and assist impact — curved into a 0–1000 performance index.</p>
                 </div>
 
-                <div class="perf-analytics hidden" id="perfAnalytics">
-                    <div class="perf-chart-container">
-                        <h3 class="analytics-title">Score Trend</h3>
-                        <div class="chart-wrapper">
-                            <canvas id="trendChart"></canvas>
+                <form class="search-form" id="searchForm" autocomplete="off">
+                    <div class="search-field">
+                        <label for="riotId">Riot ID</label>
+                        <div class="search-input-wrap">
+                            <input type="text" id="riotId" name="riotId" placeholder="Name#TAG" spellcheck="false" autocapitalize="off" required>
+                            <kbd class="search-hint">Enter</kbd>
+                        </div>
+                        <p class="field-hint">Paste full Riot ID like <strong>TenZ#SEN</strong> — or use Name and Tag below.</p>
+                    </div>
+                    <div class="search-split">
+                        <div class="field">
+                            <label for="username">Name</label>
+                            <input type="text" id="username" name="username" placeholder="TenZ" spellcheck="false" autocapitalize="off">
+                        </div>
+                        <div class="field field-tag">
+                            <label for="tag">Tag</label>
+                            <div class="tag-wrap">
+                                <span class="tag-hash">#</span>
+                                <input type="text" id="tag" name="tag" placeholder="SEN" spellcheck="false" autocapitalize="off">
+                            </div>
                         </div>
                     </div>
-                    
-                    <div class="perf-grids">
-                        <div class="analytics-card">
-                            <h3 class="analytics-title">Top Agents</h3>
-                            <div class="analytics-list" id="agentAnalyticsList"></div>
-                        </div>
-                        <div class="analytics-card">
-                            <h3 class="analytics-title">Map Performance</h3>
-                            <div class="analytics-list" id="mapAnalyticsList"></div>
-                        </div>
+                    <button type="submit" class="btn-primary" id="calcBtn">
+                        <span class="btn-label">Analyze Performance</span>
+                        <span class="btn-spinner hidden" aria-hidden="true"></span>
+                    </button>
+                </form>
+
+                <div class="recent-searches hidden" id="recentSearches">
+                    <div class="recent-head">
+                        <span>Recent</span>
+                        <button type="button" class="text-btn" id="clearRecent">Clear</button>
                     </div>
+                    <div class="recent-chips" id="recentChips"></div>
                 </div>
             </section>
 
-            <section id="resultState" class="result-container hidden">
+            <section id="errorState" class="error-banner hidden" role="alert"></section>
+
+            <!-- PLAYER PROFILE -->
+            <section id="profileState" class="profile-card hidden">
+                <div class="profile-main">
+                    <div class="profile-avatar-wrap">
+                        <img id="profileCard" class="profile-avatar" alt="" width="72" height="72">
+                        <div class="profile-level" id="profileLevel">—</div>
+                    </div>
+                    <div class="profile-meta">
+                        <h2 class="profile-name">
+                            <span id="profileName">—</span><span class="profile-tag" id="profileTag">#—</span>
+                        </h2>
+                        <div class="profile-badges">
+                            <span class="pill" id="profileRegion">—</span>
+                            <span class="pill pill-muted" id="profileMatches">— matches</span>
+                        </div>
+                    </div>
+                    <div class="profile-score-block">
+                        <div class="profile-score-ring">
+                            <svg class="ring-svg" viewBox="0 0 36 36">
+                                <path class="ring-bg" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"/>
+                                <path class="ring-fg" id="perfCircle" stroke-dasharray="0, 100" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"/>
+                            </svg>
+                            <div class="ring-center">
+                                <span class="ring-value" id="perfScoreText">0</span>
+                                <span class="ring-label">AVG</span>
+                            </div>
+                        </div>
+                        <span class="score-tier" id="scoreTier">—</span>
+                    </div>
+                </div>
+
+                <div class="form-streak" id="formStreak" aria-label="Recent form"></div>
+
+                <div class="stat-grid" id="statGrid">
+                    <div class="stat-tile"><span class="stat-val" id="perfWr">—</span><span class="stat-lbl">Win Rate</span></div>
+                    <div class="stat-tile"><span class="stat-val" id="perfAcs">—</span><span class="stat-lbl">Avg ACS</span></div>
+                    <div class="stat-tile"><span class="stat-val" id="perfKd">—</span><span class="stat-lbl">K/D</span></div>
+                    <div class="stat-tile"><span class="stat-val" id="perfKda">—</span><span class="stat-lbl">Avg K/D/A</span></div>
+                    <div class="stat-tile"><span class="stat-val" id="perfClutch">—</span><span class="stat-lbl">Clutches</span></div>
+                    <div class="stat-tile"><span class="stat-val" id="perfFbfd">—</span><span class="stat-lbl">FB / FD</span></div>
+                    <div class="stat-tile"><span class="stat-val" id="perfHs">—</span><span class="stat-lbl">HS %</span></div>
+                    <div class="stat-tile"><span class="stat-val" id="perfAdr">—</span><span class="stat-lbl">Avg ADR</span></div>
+                </div>
+
+                <div class="profile-loading" id="profileLoading">
+                    <div class="spinner"></div>
+                    <span>Crunching match data…</span>
+                </div>
+            </section>
+
+            <!-- ANALYTICS -->
+            <section id="analyticsState" class="analytics-section hidden">
+                <div class="panel chart-panel">
+                    <div class="panel-head">
+                        <h3>Score trend</h3>
+                        <span class="panel-note">Last 10 competitive · dashed = 5-match avg</span>
+                    </div>
+                    <div class="chart-wrap">
+                        <canvas id="trendChart"></canvas>
+                    </div>
+                </div>
+                <div class="analytics-grid">
+                    <div class="panel">
+                        <div class="panel-head"><h3>Top agents</h3></div>
+                        <div class="analytics-list" id="agentAnalyticsList"></div>
+                    </div>
+                    <div class="panel">
+                        <div class="panel-head"><h3>Map performance</h3></div>
+                        <div class="analytics-list" id="mapAnalyticsList"></div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- MATCHES -->
+            <section id="resultState" class="matches-section hidden">
+                <div class="section-head">
+                    <h3>Match history</h3>
+                    <span class="section-note" id="matchCountLabel"></span>
+                </div>
                 <div id="matchList"></div>
-                <div class="load-more-container">
-                    <button id="loadMoreBtn" class="hidden"><span>Load More Matches</span></button>
-                    <div id="noMoreMatches" class="no-more-matches hidden">All matches loaded</div>
+                <div class="load-more-wrap">
+                    <button type="button" id="loadMoreBtn" class="btn-ghost hidden">
+                        <span>Load more matches</span>
+                    </button>
+                    <p id="noMoreMatches" class="end-note hidden">All matches loaded</p>
                 </div>
+            </section>
+
+            <!-- EMPTY / LANDING extras when idle -->
+            <section class="feature-strip" id="featureStrip">
+                <article class="feature-card">
+                    <div class="feature-icon">01</div>
+                    <h4>Round intelligence</h4>
+                    <p>Every kill weighted by enemy ACS, eco damage, and clutch context — not just raw K/D.</p>
+                </article>
+                <article class="feature-card">
+                    <div class="feature-icon">02</div>
+                    <h4>0–1000 index</h4>
+                    <p>Average round score curved against a 45-point perfect-round benchmark for readable grades.</p>
+                </article>
+                <article class="feature-card">
+                    <div class="feature-icon">03</div>
+                    <h4>Full lobby scores</h4>
+                    <p>Click any player on the scoreboard to pivot analysis — share links with <code>?id=Name#TAG</code>.</p>
+                </article>
             </section>
         </main>
 
+        <footer class="site-footer">
+            <p>VALTRACK · Unofficial fan tool · Data via HenrikDev · Not affiliated with Riot Games</p>
+        </footer>
     </div>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+    <!-- SCORING HELP MODAL -->
+    <div class="modal-backdrop hidden" id="helpModal" role="dialog" aria-modal="true" aria-labelledby="helpTitle">
+        <div class="modal">
+            <div class="modal-head">
+                <h2 id="helpTitle">How scoring works</h2>
+                <button type="button" class="icon-btn" id="helpClose" aria-label="Close">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
+                </button>
+            </div>
+            <div class="modal-body">
+                <p>VALTRACK builds a combat score every round, then averages and curves it into a <strong>0–1000</strong> performance index.</p>
+                <ul class="score-rules">
+                    <li><strong>Kills</strong> — base value scales with victim ACS (+ eco damage bonus if you hurt their next buy).</li>
+                    <li><strong>Clutches</strong> — 1.5× kill value when you win a 1vN after teammates are down.</li>
+                    <li><strong>First blood</strong> — +25 pts · <strong>First death</strong> — −35 pts.</li>
+                    <li><strong>Assist damage</strong> — useful non-kill damage (discounted in hopeless lost rounds).</li>
+                </ul>
+                <div class="formula-box">
+                    <code>Avg = Raw total ÷ Rounds</code>
+                    <code>Score = (Avg ÷ 45)<sup>0.98</sup> × 1000</code>
+                </div>
+                <div class="tier-legend">
+                    <div class="tier-row"><span class="tier-dot" style="--c:#f87171"></span> 0–299 Struggle</div>
+                    <div class="tier-row"><span class="tier-dot" style="--c:#fb923c"></span> 300–449 Below avg</div>
+                    <div class="tier-row"><span class="tier-dot" style="--c:#fbbf24"></span> 450–599 Average</div>
+                    <div class="tier-row"><span class="tier-dot" style="--c:#4ade80"></span> 600–749 Strong</div>
+                    <div class="tier-row"><span class="tier-dot" style="--c:#34d399"></span> 750–899 Elite</div>
+                    <div class="tier-row"><span class="tier-dot" style="--c:#60a5fa"></span> 900–1000 Radiant</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
     <script src="app.js"></script>
 </body>
 </html>
